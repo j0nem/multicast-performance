@@ -1,0 +1,12 @@
+server_vm: root@your-ip
+client_vms:
+  - root@your-ip
+  - root@your-ip
+  - root@your-ip
+clients_per_vm: 1
+iterations: 1
+test_name: multicast_test
+server_binary: /root/multicast/build/multicast
+client_binary: /root/multicast/build/multicast
+server_args: server 4433 4434 /root/multicast/application/server/ca-cert.pem /root/multicast/application/server/server-key.pem 24000 /root/multicast/application/server/files/bbb.mp4 3
+client_args: client SERVER_IP 4433 /root/multicast/application/client 24000

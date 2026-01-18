@@ -1,0 +1,12 @@
+server_vm: root@your-ip
+client_vms:
+  - root@your-ip
+  - root@your-ip
+  - root@your-ip
+clients_per_vm: 1
+iterations: 1
+test_name: unicast_test
+server_binary: /root/multicast/build/dgramspl
+client_binary: /root/multicast/build/dgramspl
+server_args: server 4433 /root/multicast/application/server/ca-cert.pem /root/multicast/application/server/server-key.pem /root/multicast/application/server/files/bbb.mp4
+client_args: client SERVER_IP 4433 /root/multicast/application/client
