@@ -182,9 +182,11 @@ cleanup() {
     
     echo "Results saved to: $RESULTS_DIR"
     echo "Done."
+
+    exit 0
 }
 
-trap cleanup SIGINT SIGTERM EXIT
+trap cleanup SIGINT SIGTERM
 
 # Wait for the time wrapper process (not the server directly)
 # This prevents the script from exiting while the server is running
@@ -200,5 +202,4 @@ wait $TIME_PID 2>/dev/null || true
 echo ""
 echo "Server process has exited"
 
-# Don't call cleanup explicitly - the EXIT trap will handle it
-exit 0
+cleanup
