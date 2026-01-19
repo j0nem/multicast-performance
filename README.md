@@ -35,7 +35,7 @@ sudo systemctl start sysstat
 
 ### On host system
 
-This is needed for running the `compare_results.py` script, including plotting
+For the `analyze_results.py` script, Python is needed, for plotting in `compare_results.py` script, additionally `matplotlib`
 
 ```bash
 # Ubuntu/Debian
@@ -69,8 +69,8 @@ ssh user@server-vm "hostname"
 1. **Download all scripts to your control machine:**
    - `server_measure.sh`
    - `client_measure.sh`
-   - `analyze_results.sh`
    - `orchestrator.sh`
+   - `analyze_results.py`
    - `compare_results.py`
 
 2. **Make scripts executable:**
@@ -185,7 +185,7 @@ If you prefer more control, run measurements manually on each VM:
 scp -r user@server-vm:~/quic_tests/results/test_name_* ./local_results/
 
 # Analyze
-./analyze_results.sh ./local_results/test_name_*
+python3 analyze_results.py ./local_results/test_name_*
 ```
 
 ## Understanding the Results
@@ -200,7 +200,6 @@ results/
 │   ├── server/
 │   │   ├── server_time.log          # Resource usage summary
 │   │   ├── pidstat.log               # CPU/memory over time
-│   │   ├── network_capture.pcap      # Packet capture
 │   │   ├── network_stats.log         # Interface statistics
 │   │   ├── server_pid                # Server process ID
 │   │   └── server_stdout.log         # Server output
@@ -211,7 +210,6 @@ results/
 │   │   ├── client_2/                 # Second client on this VM
 │   │   │   ├── stdout.log
 │   │   │   └── time.log
-│   │   ├── network_capture.pcap      # All traffic from this VM
 │   │   └── test_config.txt
 │   ├── client_vm1/
 │   │   └── ...
@@ -234,9 +232,11 @@ results/
 - System Time - CPU time in kernel mode
 
 **Memory Usage:**
+
+Based on RSS (Resident Set Size) - Physical memory used
+
 - Average Memory - Mean memory consumption
 - Peak Memory - Maximum memory used
-- RSS (Resident Set Size) - Physical memory used
 
 **Network:**
 - Total Packets - Number of packets transmitted/received
@@ -316,14 +316,6 @@ clients_per_vm: 5
 
 Or vary the number of client VMs in your config file.
 
-### 5. Monitor Network Saturation
-
-Check for packet loss:
-```bash
-# After test, analyze pcap
-tshark -r network_capture.pcap -q -z io,stat,1
-```
-
 ### 6. Document Test Conditions
 
 Always record:
@@ -334,34 +326,6 @@ Always record:
 - QUIC implementation version
 
 ## Troubleshooting
-
-### "Permission denied" when running tcpdump
-
-```bash
-# Add your user to the tcpdump group
-sudo usermod -a -G tcpdump $USER
-# Or run with sudo
-sudo ./server_measure.sh ...
-```
-
-### pidstat not found
-
-```bash
-sudo apt-get install -y sysstat
-```
-
-### SSH connection issues
-
-```bash
-# Test connection
-ssh -v user@vm-ip
-
-# Check SSH config
-cat ~/.ssh/config
-
-# Verify keys
-ssh-add -l
-```
 
 ### Server fails to start
 

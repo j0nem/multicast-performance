@@ -16,7 +16,6 @@ apt update && apt install -y \
     pkg-config \
     unzip \
     sysstat \
-    tcpdump \
     tshark \
     time \
     ntp \
