@@ -91,7 +91,7 @@ echo "$ACTUAL_SERVER_PID" > "$RESULTS_DIR/server_pid"
 
 # Start pidstat monitoring (CPU, memory, disk I/O) on the actual server process
 echo "Starting resource monitoring..."
-pidstat -p $ACTUAL_SERVER_PID -u -r -t -d 1 > "$RESULTS_DIR/pidstat.log" 2>&1 &
+pidstat -p $ACTUAL_SERVER_PID -u -r -d 1 > "$RESULTS_DIR/pidstat.log" 2>&1 &
 PIDSTAT_PID=$!
 
 # Monitor network interface statistics
