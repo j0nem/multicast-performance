@@ -21,36 +21,10 @@ CLIENT_BIN=$(grep "^client_binary:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
 SERVER_ARGS=$(grep "^server_args:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
 CLIENT_ARGS=$(grep "^client_args:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
 ITERATIONS=$(grep "^iterations:" "$CONFIG_FILE" | cut -d: -f2- | xargs || echo "1")
+MAX_DURATION=$(grep "^max_test_duration:" "$CONFIG_FILE" | cut -d: -f2- | xargs || echo "0")
 
 # Check if this is an iteration run (second parameter)
-CURRENT_ITERATION=${2:-1}
-
-echo "=========================================="
-echo "QUIC Distributed Test Orchestration"
-echo "=========================================="
-echo ""
-echo "Test: $TEST_NAME"
-echo "Server: $SERVER_VM"
-echo "Clients: ${CLIENT_VMS[@]}"
-echo "Clients per VM: $CLIENTS_PER_VM"
-echo "Total Clients: $((${#CLIENT_VMS[@]} * CLIENTS_PER_VM))"
-if [ "$ITERATIONS" -gt 1 ]; then
-    echo "Iteration: $CURRENT_ITERATION / $ITERATIONS"
-fi
-echo ""
-echo "Press Ctrl+C to stop the test"
-echo ""
-
-# Create local results directory
-if [ "$ITERATIONS" -gt 1 ]; then
-    LOCAL_RESULTS="results/${TEST_NAME}_iter${CURRENT_ITERATION}_$(date +%Y%m%d_%H%M%S)"
-else
-    LOCAL_RESULTS="results/${TEST_NAME}_$(date +%Y%m%d_%H%M%S)"
-fi
-mkdir -p "$LOCAL_RESULTS"
-
-# Save configuration
-cp "$CONFIG_FILE" "$LOCAL_RESULTS/test_config.yaml"
+CURRENT_ITERATION=${2:-0}
 
 # Get server IP from SERVER_VM
 SERVER_IP=$(echo $SERVER_VM | cut -d@ -f2)
@@ -59,7 +33,7 @@ SERVER_IP=$(echo $SERVER_VM | cut -d@ -f2)
 CLIENT_ARGS="${CLIENT_ARGS//SERVER_IP/$SERVER_IP}"
 
 # Run test(s)
-if [ "$CURRENT_ITERATION" -eq 1 ] && [ "$ITERATIONS" -gt 1 ]; then
+if [ "$CURRENT_ITERATION" -eq 0 ] && [ "$ITERATIONS" -gt 1 ]; then
     # This is the first call and we need to run multiple iterations
     echo "Running $ITERATIONS iterations..."
     echo ""
@@ -92,7 +66,39 @@ if [ "$CURRENT_ITERATION" -eq 1 ] && [ "$ITERATIONS" -gt 1 ]; then
     echo ""
     echo "Results stored in: results/${TEST_NAME}_iter*"
     echo ""
+
+    exit 0
 fi
+
+echo "=========================================="
+echo "QUIC Distributed Test Orchestration"
+echo "=========================================="
+echo ""
+echo "Test: $TEST_NAME"
+echo "Server: $SERVER_VM"
+echo "Clients: ${CLIENT_VMS[@]}"
+echo "Clients per VM: $CLIENTS_PER_VM"
+echo "Total Clients: $((${#CLIENT_VMS[@]} * CLIENTS_PER_VM))"
+if [ "$ITERATIONS" -gt 1 ]; then
+    echo "Iteration: $CURRENT_ITERATION / $ITERATIONS"
+fi
+if [ "$MAX_DURATION" -gt 0 ]; then
+    echo "Max duration: ${MAX_DURATION}s"
+fi
+echo ""
+echo "Press Ctrl+C to stop the test"
+echo ""
+
+# Create local results directory
+if [ "$ITERATIONS" -gt 1 ]; then
+    LOCAL_RESULTS="results/${TEST_NAME}_iter${CURRENT_ITERATION}_$(date +%Y%m%d_%H%M%S)"
+else
+    LOCAL_RESULTS="results/${TEST_NAME}_$(date +%Y%m%d_%H%M%S)"
+fi
+mkdir -p "$LOCAL_RESULTS"
+
+# Save configuration
+cp "$CONFIG_FILE" "$LOCAL_RESULTS/test_config.yaml"
 
 # If we get here, run a single test (either standalone or as part of iterations)
 # The test logic is already in the script above
@@ -333,8 +339,27 @@ trap cleanup SIGINT SIGTERM
 status_check &
 STATUS_PID=$!
 
-# Wait for status check to exit or for user interrupt
-wait $STATUS_PID 2>/dev/null || true
+if [ "$MAX_DURATION" -gt 0 ]; then
+    echo "Waiting up to ${MAX_DURATION} seconds..."
+    
+    # Start a timeout timer in background
+    (sleep ${MAX_DURATION} && kill -0 $STATUS_PID 2>/dev/null && kill $STATUS_PID 2>/dev/null) &
+    TIMEOUT_PID=$!
+    
+    # Wait for status check to complete
+    if wait $STATUS_PID 2>/dev/null; then
+        # Status check completed successfully, kill the timer
+        kill $TIMEOUT_PID 2>/dev/null
+        wait $TIMEOUT_PID 2>/dev/null
+        echo "Server has finished."
+    else
+        # Status check was killed or failed
+        echo "Max duration reached, stopping."
+    fi
+else
+    # Wait for status check to exit or for user interrupt
+    wait $STATUS_PID 2>/dev/null || true
+fi
 
 echo ""
 echo "Test processes has ended."

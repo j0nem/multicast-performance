@@ -1,32 +1,33 @@
-# QUIC Multicast Performance Measurement
+# (Multicast) Server/Client Performance Measurement
 
----
+This is a set of tools, developed for automating performance measures of the Picoquic multicast extension (but should work with any server and client binary):
 
-This is a set of tools to measure the performance of the Picoquic multicast extension:  
 https://github.com/j0nem/picoquic-multicast
-
----
 
 ## Prerequisites
 
 ### Install Required Tools on All VMs
 
-Setup all tools + the full picoquic-multicast project, build it, and get example files on Debian/Ubuntu:
+**Setup for Picoquic-Multicast:**
+
+Setup all tools + the specific `picoquic-multicast` project, build it, and get example files on Debian/Ubuntu:
 
 ```bash
 # Please have a look what that script does before executing it
 ./setup_picoquic_multicast.sh
 ```
 
+**General setup:** 
+
 Install only the tools for the measurements:
 
 ```bash
 # Ubuntu/Debian
 sudo apt-get update
-sudo apt-get install -y sysstat tcpdump tshark ssh
+sudo apt-get install -y sysstat time ssh
 
 # RHEL/CentOS
-sudo yum install -y sysstat tcpdump wireshark-cli openssh-clients
+sudo yum install -y sysstat time openssh-clients
 
 # Enable sar data collection
 sudo systemctl enable sysstat
@@ -97,6 +98,7 @@ server_binary: /path/to/multicast
 client_binary: /path/to/multicast
 server_args: server 4433 4434 /path/to/cert /path/to/key 24000 /path/to/served-file.mp4 3
 client_args: client SERVER_IP 4433 /path/to/client/folder 24000
+max_test_duration: 300  # in seconds, set to 0 for no timeout (only manual interruption or natural termination)
 ```
 
 ### Example: `unicast_test.conf`
@@ -114,17 +116,20 @@ server_binary: /path/to/dgramspl
 client_binary: /path/to/dgramspl
 server_args: server 4433 /path/to/cert /path/to/key /path/to/served-file.mp4
 client_args: client SERVER_IP 4433 /path/to/client/folder
+max_test_duration: 300
 ```
 
 **Note:** 
 - `SERVER_IP` is automatically replaced with the actual server IP address.
-- `clients_per_vm` specifies how many client processes to start on each VM (default: 1)
-- `iterations` specifies how many times to run the test (default: 1). Results will be averaged.
-- Total clients = number of client VMs × clients_per_vm
+- `server_args` and `client_args` can be arbitrary, tailored to the corresponding binary.
+- `clients_per_vm` specifies how many client processes to start on each VM (default: 1): Total clients = number of client VMs × clients_per_vm
+- `iterations` (optional) specifies how many times to run the test (default: 1). Results will be averaged.
+- `max_test_duration` (optional) is the maximum time a test should run (default: 0). Set to 0 for no timeout (only manual interruption or natural termination of the server/client processes)
+
 
 **See also:**
-- [Usage of the multicast demo program](https://github.com/j0nem/picoquic-multicast/blob/multicast/multicast_sample/README.md)
-- [Usage of the unicast demo program](https://github.com/j0nem/picoquic-multicast/blob/multicast/datagram_sample/README.md)
+- [Usage of the Picoquic multicast demo program](https://github.com/j0nem/picoquic-multicast/blob/multicast/multicast_sample/README.md)
+- [Usage of the Picoquic unicast demo program](https://github.com/j0nem/picoquic-multicast/blob/multicast/datagram_sample/README.md)
 
 ## Usage
 
@@ -156,7 +161,7 @@ Run the entire distributed test from your control machine:
 3. For each iteration:
    - Start the server
    - Start multiple clients on each client VM
-   - Wait for you to press Ctrl+C (or for clients to finish naturally)
+   - Wait for the timeout, or you to press Ctrl+C (or for clients to finish naturally)
    - Stop all processes gracefully
    - Collect all results automatically
    - Generate analysis reports
@@ -226,6 +231,9 @@ results/
 ### Key Metrics
 
 **CPU Usage:**
+
+Captured with `pidstat`:
+
 - Average CPU % - Overall CPU utilization
 - Peak CPU % - Maximum CPU spike
 - User Time - CPU time in user mode
@@ -233,16 +241,19 @@ results/
 
 **Memory Usage:**
 
-Based on RSS (Resident Set Size) - Physical memory used
+Captured with `pidstat`, values based on RSS (Resident Set Size) - Physical memory used
 
 - Average Memory - Mean memory consumption
 - Peak Memory - Maximum memory used
 
 **Network:**
-- Total Packets - Number of packets transmitted/received
-- Data Transfer - Total bytes transferred
-- Packet Rate - Packets per second
-- Data Rate - Bytes per second
+
+Captured with `sar`:
+
+- Average Packet Rate - Packets per second
+- Average Data Rate - Bytes per second
+- Peak Packet Rate - Packets per second
+- Peak Data Rate - Bytes per second
 
 **Context Switches:**
 - Voluntary - Process yielded CPU (I/O wait, etc.)
@@ -279,26 +290,7 @@ sudo apt-get install -y cpufrequtils
 sudo cpufreq-set -g performance
 ```
 
-### 3. Run Multiple Iterations
-
-```bash
-for i in {1..5}; do
-    echo "Running test iteration $i..."
-    ./orchestrator.sh multicast_test.conf &
-    ORCH_PID=$!
-    
-    # Let it run for 60 seconds
-    sleep 60
-    
-    # Stop it with Ctrl+C (SIGINT)
-    kill -INT $ORCH_PID
-    wait $ORCH_PID
-    
-    sleep 30
-done
-```
-
-### 4. Vary Number of Clients
+### 3. Vary Number of Clients
 
 Test with different client counts to see multicast scaling benefits by adjusting `clients_per_vm`:
 
@@ -316,7 +308,7 @@ clients_per_vm: 5
 
 Or vary the number of client VMs in your config file.
 
-### 6. Document Test Conditions
+### 5. Document Test Conditions
 
 Always record:
 - VM specifications (CPU, RAM, network)
