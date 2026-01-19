@@ -36,15 +36,6 @@ EOF
 echo "Starting server monitoring for test: $TEST_NAME"
 echo "Results will be saved to: $RESULTS_DIR"
 
-# Start tcpdump capture - capture ALL traffic including multicast
-echo "Starting packet capture..."
-tcpdump -i "$INTERFACE" -w "$RESULTS_DIR/network_capture.pcap" \
-    -Z root -B 4096 2> "$RESULTS_DIR/tcpdump.log" &
-TCPDUMP_PID=$!
-
-# Give tcpdump time to start
-sleep 2
-
 # Start the server with time measurement
 echo "Starting server: $SERVER_BIN $SERVER_ARGS"
 /usr/bin/time -v "$SERVER_BIN" $SERVER_ARGS > "$RESULTS_DIR/server_stdout.log" 2> "$RESULTS_DIR/server_time.log" &
@@ -73,14 +64,12 @@ if [ -z "$ACTUAL_SERVER_PID" ]; then
     if ! kill -0 $TIME_PID 2>/dev/null; then
         echo "Error: Time wrapper process died"
     fi
-    kill $TCPDUMP_PID 2>/dev/null || true
     exit 1
 fi
 
 # Verify the actual server is running
 if ! kill -0 $ACTUAL_SERVER_PID 2>/dev/null; then
     echo "Error: Server process exists but is not responding"
-    kill $TCPDUMP_PID 2>/dev/null || true
     exit 1
 fi
 
@@ -91,7 +80,7 @@ echo "$ACTUAL_SERVER_PID" > "$RESULTS_DIR/server_pid"
 
 # Start pidstat monitoring (CPU, memory, disk I/O) on the actual server process
 echo "Starting resource monitoring..."
-pidstat -p $ACTUAL_SERVER_PID -u -r -d 1 > "$RESULTS_DIR/pidstat.log" 2>&1 &
+pidstat -t -p $ACTUAL_SERVER_PID -u -r -d 1 > "$RESULTS_DIR/pidstat.log" 2>&1 &
 PIDSTAT_PID=$!
 
 # Monitor network interface statistics
@@ -180,16 +169,16 @@ cleanup() {
     # Also kill by binary name as a safety measure (but not ourselves!)
     pkill -f "$SERVER_BIN" 2>/dev/null || true
     
-    # Stop tcpdump
-    kill -TERM $TCPDUMP_PID 2>/dev/null || true
-    sleep 1
-    
     # Save final statistics
     echo "End Time: $(date)" >> "$RESULTS_DIR/test_config.txt"
     
     # Generate summary
     echo "Generating summary..."
-    ./analyze_results.sh "$RESULTS_DIR" > "$RESULTS_DIR/summary.txt" 2>&1 || true
+    if [ -f "./analyze_results.py" ]; then
+        python3 ./analyze_results.py "$RESULTS_DIR" > "$RESULTS_DIR/summary.txt" 2>&1 || true
+    else
+        echo "Warning: analyze_results.py not found" > "$RESULTS_DIR/summary.txt"
+    fi
     
     echo "Results saved to: $RESULTS_DIR"
     echo "Done."

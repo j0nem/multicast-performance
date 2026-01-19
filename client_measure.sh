@@ -39,15 +39,6 @@ echo "Starting client monitoring for test: $TEST_NAME"
 echo "Number of clients: $NUM_CLIENTS"
 echo "Results will be saved to: $RESULTS_DIR"
 
-# Start tcpdump capture
-echo "Starting packet capture..."
-tcpdump -i "$INTERFACE" -w "$RESULTS_DIR/network_capture.pcap" \
-    2> "$RESULTS_DIR/tcpdump.log" &
-TCPDUMP_PID=$!
-
-# Give tcpdump time to start
-sleep 2
-
 # Start network statistics monitoring
 sar -n DEV 1 > "$RESULTS_DIR/network_stats.log" 2>&1 &
 SAR_PID=$!
@@ -93,8 +84,6 @@ cleanup() {
     # Stop monitoring
     kill $SAR_PID 2>/dev/null || true
     sleep 1
-    kill -TERM $TCPDUMP_PID 2>/dev/null || true
-    sleep 2
     
     echo "All clients stopped."
 }
@@ -112,8 +101,6 @@ echo "All clients finished naturally"
 # Stop monitoring
 kill $SAR_PID 2>/dev/null || true
 sleep 1
-kill -TERM $TCPDUMP_PID 2>/dev/null || true
-sleep 2
 
 # Save final statistics
 cat >> "$RESULTS_DIR/test_config.txt" <<EOF

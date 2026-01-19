@@ -6,19 +6,6 @@ set -e
 
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <config_file>"
-    echo ""
-    echo "Config file format (YAML-like):"
-    echo "server_vm: user@server-ip"
-    echo "client_vms:"
-    echo "  - user@client1-ip"
-    echo "  - user@client2-ip"
-    echo "  - user@client3-ip"
-    echo "test_name: multicast_test"
-    echo "server_binary: /path/to/server"
-    echo "client_binary: /path/to/client"
-    echo "server_args: -p 4433"
-    echo "client_args: -h SERVER_IP -p 4433"
-    echo "test_duration: 60"
     exit 1
 fi
 
@@ -65,87 +52,11 @@ mkdir -p "$LOCAL_RESULTS"
 # Save configuration
 cp "$CONFIG_FILE" "$LOCAL_RESULTS/test_config.yaml"
 
-echo "Step 1: Uploading scripts to all VMs..."
-
-# Upload scripts to all VMs
-for vm in $SERVER_VM "${CLIENT_VMS[@]}"; do
-    echo "  Uploading to $vm..."
-    scp -q server_measure.sh client_measure.sh analyze_results.py "$vm:~/quic_tests/" 2>&1 | grep -v "Warning: Permanently added" || true
-    ssh -f "$vm" "chmod +x ~/quic_tests/*.sh ~/quic_tests/*.py" 2>&1 | grep -v "Warning: Permanently added" || true
-done
-
-echo "Done."
-echo ""
-
-# Trap to cleanup on exit
-trap cleanup SIGINT SIGTERM EXIT
-
 # Get server IP from SERVER_VM
 SERVER_IP=$(echo $SERVER_VM | cut -d@ -f2)
 
 # Replace SERVER_IP placeholder in client args
 CLIENT_ARGS="${CLIENT_ARGS//SERVER_IP/$SERVER_IP}"
-
-# Cleanup function
-cleanup() {
-    echo ""
-    echo "=========================================="
-    echo "Stopping all processes..."
-    echo "=========================================="
-    
-    # Kill the status check if it's running
-    if [ -n "$STATUS_PID" ]; then
-        kill $STATUS_PID 2>/dev/null || true
-    fi
-    
-    # Stop all clients
-    echo "Stopping clients..."
-    for i in "${!CLIENT_VMS[@]}"; do
-        client="${CLIENT_VMS[$i]}"
-        echo "  Stopping clients on $client..."
-        ssh -f "$client" "pkill -f client_measure.sh 2>/dev/null; pkill -f '$CLIENT_BIN' 2>/dev/null; exit 0" || true
-    done
-    
-    # Stop server - send interrupt signal to server_measure.sh which will handle cleanup
-    echo "Stopping server..."
-    ssh -f "$SERVER_VM" "pkill -SIGINT -f 'server_measure.sh.*$TEST_NAME' 2>/dev/null; exit 0" || true
-    
-    # Wait for graceful shutdown
-    echo "Waiting for processes to finish..."
-    sleep 5
-    
-    # Force kill any remaining processes
-    ssh "$SERVER_VM" "pkill -9 -f '$SERVER_BIN' 2>/dev/null; exit 0" || true
-    for i in "${!CLIENT_VMS[@]}"; do
-        client="${CLIENT_VMS[$i]}"
-        ssh -f "$client" "pkill -9 -f '$CLIENT_BIN' 2>/dev/null; exit 0" || true
-    done
-    
-    sleep 2
-    
-    # Collect results
-    collect_results
-    
-    echo ""
-    echo "=========================================="
-    echo "Test Complete!"
-    echo "=========================================="
-    echo ""
-    echo "Results saved to: $LOCAL_RESULTS"
-    echo "Summary: $LOCAL_RESULTS/test_summary.txt"
-    echo ""
-    echo "To view the summary:"
-    echo "  cat $LOCAL_RESULTS/test_summary.txt"
-    echo ""
-    
-    exit 0
-}
-
-# Main execution
-run_single_test() {
-    # All the test logic is already above
-    :
-}
 
 # Run test(s)
 if [ "$CURRENT_ITERATION" -eq 1 ] && [ "$ITERATIONS" -gt 1 ]; then
@@ -181,15 +92,108 @@ if [ "$CURRENT_ITERATION" -eq 1 ] && [ "$ITERATIONS" -gt 1 ]; then
     echo ""
     echo "Results stored in: results/${TEST_NAME}_iter*"
     echo ""
-    
-    exit 0
 fi
 
 # If we get here, run a single test (either standalone or as part of iterations)
 # The test logic is already in the script above
 
-trap cleanup SIGINT SIGTERM
+echo "Step 1: Uploading scripts to all VMs..."
 
+# Upload scripts to all VMs
+for vm in $SERVER_VM "${CLIENT_VMS[@]}"; do
+    echo "  Uploading to $vm..."
+    scp -q server_measure.sh client_measure.sh analyze_results.py "$vm:~/quic_tests/" 2>&1 | grep -v "Warning: Permanently added" || true
+    ssh -f "$vm" "chmod +x ~/quic_tests/*.sh ~/quic_tests/*.py" 2>&1 | grep -v "Warning: Permanently added" || true
+done
+
+echo "Done."
+echo ""
+
+echo "Step 2: Starting server on $SERVER_VM..."
+ssh -f "$SERVER_VM" "cd ~/quic_tests && nohup ./server_measure.sh $SERVER_BIN $TEST_NAME $SERVER_ARGS > server_orchestrator.log 2>&1 &" || {
+    echo "Warning: SSH command to start server may have failed"
+}
+
+echo "Waiting for server to initialize..."
+sleep 5
+
+# Verify server is running - try multiple times
+SERVER_RUNNING=0
+for i in {1..3}; do
+    SERVER_RUNNING=$(ssh -f "$SERVER_VM" "pgrep -f $SERVER_BIN 2>/dev/null | wc -l" 2>/dev/null || echo "0")
+    
+    # Ensure it's a valid number
+    if ! [[ "$SERVER_RUNNING" =~ ^[0-9]+$ ]]; then
+        SERVER_RUNNING=0
+    fi
+    
+    if [ "$SERVER_RUNNING" -gt 0 ]; then
+        break
+    fi
+    
+    if [ $i -lt 3 ]; then
+        echo "  Server not detected yet, waiting..."
+        sleep 3
+    fi
+done
+
+if [ "$SERVER_RUNNING" -gt 0 ]; then
+    echo "Server started successfully (found $SERVER_RUNNING process(es))"
+else
+    echo "Warning: Server may not have started properly"
+    echo "Check server log: ssh $SERVER_VM 'cat ~/quic_tests/server_orchestrator.log'"
+fi
+echo ""
+
+echo "Step 3: Starting clients..."
+for i in "${!CLIENT_VMS[@]}"; do
+    client="${CLIENT_VMS[$i]}"
+    echo "  Starting $CLIENTS_PER_VM client(s) on $client..."
+    # Use ssh with timeout and suppress warnings
+    ssh -f "$client" "cd ~/quic_tests && nohup ./client_measure.sh $CLIENT_BIN ${TEST_NAME}_client${i} $CLIENTS_PER_VM $CLIENT_ARGS > client_orchestrator.log 2>&1 &" || {
+        echo "  Warning: Failed to start clients on $client"
+    }
+    sleep 2
+done
+
+echo "All clients started."
+echo ""
+
+echo "=========================================="
+echo "Test is running..."
+echo "Press Ctrl+C to stop the test"
+echo "=========================================="
+echo ""
+
+# Show status updates
+status_check() {
+    local count=0
+    while true; do
+        sleep 10
+        count=$((count + 1))
+        
+        # Check if server is still running every 10 seconds
+        local server_count=$(ssh -f "$SERVER_VM" "pgrep -f $SERVER_BIN 2>/dev/null | wc -l" 2>/dev/null || echo "0")
+        
+        # Ensure it's a valid number
+        if ! [[ "$server_count" =~ ^[0-9]+$ ]]; then
+            server_count=0
+        fi
+        
+        if [ "$server_count" -eq 0 ]; then
+            echo ""
+            echo "Server process has stopped."
+            return 1
+        fi
+        
+        # Print status every 30 seconds
+        if [ $((count % 3)) -eq 0 ]; then
+            echo "Status check: Server running, test duration: $((count * 10))s"
+        fi
+    done
+}
+
+# Collect results from VMs
 collect_results() {
     echo ""
     echo "Collecting results..."
@@ -198,7 +202,7 @@ collect_results() {
     sleep 2
     
     # Collect server results
-    echo "  Collecting from server (this may take a while)..."
+    echo "  Collecting from server..."
     REMOTE_SERVER_DIR=$(ssh "$SERVER_VM" "ls -dt ~/quic_tests/results/${TEST_NAME}_* 2>/dev/null | head -1" || echo "")
     if [ -n "$REMOTE_SERVER_DIR" ]; then
         mkdir -p "$LOCAL_RESULTS/server"
@@ -273,88 +277,57 @@ EOF
     done
 }
 
-echo "Step 2: Starting server on $SERVER_VM..."
-ssh -f "$SERVER_VM" "cd ~/quic_tests && nohup ./server_measure.sh $SERVER_BIN $TEST_NAME $SERVER_ARGS > server_orchestrator.log 2>&1 &" || {
-    echo "Warning: Failed to start server on $SERVER_VM"
-}
-echo "Waiting for server to initialize..."
-sleep 5
-
-# Verify server is running - try multiple times
-SERVER_RUNNING=0
-for i in {1..3}; do
-    SERVER_RUNNING=$(ssh -f "$SERVER_VM" "pgrep -f $SERVER_BIN 2>/dev/null | wc -l" || echo "0")
+# Cleanup function
+cleanup() {
+    echo ""
+    echo "=========================================="
+    echo "Stopping all processes..."
+    echo "=========================================="
     
-    # Ensure it's a valid number
-    if ! [[ "$SERVER_RUNNING" =~ ^[0-9]+$ ]]; then
-        SERVER_RUNNING=0
+    # Disable trap to prevent double execution
+    trap - SIGINT SIGTERM
+    
+    # Kill the status check if it's running
+    if [ -n "$STATUS_PID" ]; then
+        kill $STATUS_PID 2>/dev/null || true
     fi
     
-    if [ "$SERVER_RUNNING" -gt 0 ]; then
-        break
-    fi
-    
-    if [ $i -lt 3 ]; then
-        echo "  Server not detected yet, waiting..."
-        sleep 3
-    fi
-done
-
-if [ "$SERVER_RUNNING" -gt 0 ]; then
-    echo "Server started successfully (found $SERVER_RUNNING process(es))"
-else
-    echo "Warning: Server may not have started properly"
-    echo "Check server log: ssh $SERVER_VM 'cat ~/quic_tests/server_orchestrator.log'"
-fi
-echo ""
-
-echo "Step 3: Starting clients..."
-for i in "${!CLIENT_VMS[@]}"; do
-    client="${CLIENT_VMS[$i]}"
-    echo "  Starting $CLIENTS_PER_VM client(s) on $client..."
-    # Use ssh with timeout and suppress warnings
-    ssh -f "$client" "cd ~/quic_tests && nohup ./client_measure.sh $CLIENT_BIN ${TEST_NAME}_client${i} $CLIENTS_PER_VM $CLIENT_ARGS > client_orchestrator.log 2>&1 &" || {
-        echo "  Warning: Failed to start clients on $client"
-    }
-    sleep 2
-done
-
-echo "All clients started."
-echo ""
-
-echo "=========================================="
-echo "Test is running..."
-echo "Press Ctrl+C to stop the test"
-echo "=========================================="
-echo ""
-
-# Show status updates
-status_check() {
-    local count=0
-    while true; do
-        sleep 10
-        count=$((count + 1))
-        
-        # Check if server is still running every 10 seconds
-        local server_count=$(ssh "$SERVER_VM" "pgrep -f $SERVER_BIN 2>/dev/null | wc -l" 2>/dev/null || echo "0")
-        
-        # Ensure it's a valid number
-        if ! [[ "$server_count" =~ ^[0-9]+$ ]]; then
-            server_count=0
-        fi
-        
-        if [ "$server_count" -eq 0 ]; then
-            echo ""
-            echo "Server process has stopped."
-            return 1
-        fi
-        
-        # Print status every 30 seconds
-        if [ $((count % 3)) -eq 0 ]; then
-            echo "Status check: Server running, test duration: $((count * 10))s"
-        fi
+    # Stop all clients
+    echo "Stopping clients..."
+    for i in "${!CLIENT_VMS[@]}"; do
+        client="${CLIENT_VMS[$i]}"
+        echo "  Stopping clients on $client..."
+        ssh -f "$client" "pkill -f client_measure.sh 2>/dev/null; pkill -f '$CLIENT_BIN' 2>/dev/null; exit 0" || true
     done
+    
+    # Stop server - send interrupt signal to server_measure.sh which will handle cleanup
+    echo "Stopping server..."
+    ssh -f "$SERVER_VM" "pkill -SIGINT -f 'server_measure.sh.*$TEST_NAME' 2>/dev/null; exit 0" || true
+    
+    # Wait for graceful shutdown
+    echo "Waiting for processes to finish..."
+    sleep 5
+    
+    # Collect results
+    collect_results
+    
+    echo ""
+    echo "=========================================="
+    echo "Test Complete!"
+    echo "=========================================="
+    echo ""
+    echo "Results saved to: $LOCAL_RESULTS"
+    echo "Summary: $LOCAL_RESULTS/test_summary.txt"
+    echo ""
+    echo "To view the summary:"
+    echo "  cat $LOCAL_RESULTS/test_summary.txt"
+    echo ""
+
+    exit 0
 }
+
+# Trap to cleanup on explicit exit
+trap cleanup SIGINT SIGTERM
 
 # Run status check in background
 status_check &
@@ -363,7 +336,7 @@ STATUS_PID=$!
 # Wait for status check to exit or for user interrupt
 wait $STATUS_PID 2>/dev/null || true
 
-# If we reach here, either server stopped or user pressed Ctrl+C
 echo ""
-echo "Test processes have completed or were interrupted."
+echo "Test processes has ended."
+
 cleanup

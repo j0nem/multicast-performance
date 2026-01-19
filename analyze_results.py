@@ -56,120 +56,87 @@ def parse_pidstat_log(filepath):
         # Look for timestamp pattern (handles both AM/PM and 24-hour format)
         # Pattern: HH:MM:SS AM/PM or HH:MM:SS
         timestamp_match = re.match(r'(\d{2}:\d{2}:\d{2})\s*(AM|PM)?', line)
-        
-        if timestamp_match:
-            # Check what type of section this is
-            if 'UID' in line and '%CPU' in line:
-                # This is a CPU stats header
-                # Next line(s) contain the data
-                i += 1
-                while i < len(lines):
-                    data_line = lines[i].strip()
-                    
-                    # Stop if we hit another timestamp or empty line
-                    if re.match(r'\d{2}:\d{2}:\d{2}', data_line) or not data_line:
-                        break
-                    
-                    # Skip lines that are just headers
-                    if 'UID' in data_line or 'Linux' in data_line:
-                        i += 1
-                        continue
-                    
-                    # Parse the data line
-                    parts = data_line.split()
-                    if len(parts) >= 9:
-                        try:
-                            # Column positions (0-indexed):
-                            # 0: timestamp, 1: UID, 2: TGID, 3: TID, 4: %usr, 5: %system, 
-                            # 6: %guest, 7: %wait, 8: %CPU, 9: CPU, 10: Command
-                            # But the timestamp might have AM/PM, so adjust
-                            
-                            # Find %CPU column - it's the one before CPU and after %wait
-                            cpu_col = None
-                            for idx, part in enumerate(parts):
-                                if part == '%CPU' or (idx > 0 and parts[idx-1] in ['%wait', '%CPU']):
-                                    # We're in the header, skip
-                                    break
-                                # Look for a numeric value that could be %CPU
-                                # It should be after several other percentage values
-                                if idx >= 7:  # After timestamp, UID, TGID, TID, %usr, %system, %guest, %wait
-                                    try:
-                                        cpu_val = float(part)
-                                        # %CPU should be 0-100 (or slightly above with multiple threads)
-                                        if 0 <= cpu_val <= 200:
-                                            cpu_col = idx
-                                            break
-                                    except ValueError:
-                                        continue
-                            
-                            # Fallback: assume standard position (column 8)
-                            if cpu_col is None:
-                                cpu_col = 8
-                            
-                            cpu = float(parts[cpu_col])
-                            
-                            # Sanity check: CPU should be reasonable
-                            if 0 <= cpu <= 200:
-                                stats['cpu']['values'].append(cpu)
-                                
-                                # Track per-thread stats if TGID/TID available
-                                if len(parts) >= 4:
-                                    tid = parts[3] if parts[3].isdigit() else parts[2]
-                                    if tid not in stats['threads']:
-                                        stats['threads'][tid] = {'cpu': [], 'name': parts[-1] if len(parts) > 10 else 'unknown'}
-                                    stats['threads'][tid]['cpu'].append(cpu)
-                        except (ValueError, IndexError) as e:
-                            pass
-                    
-                    i += 1
-                continue
+        if timestamp_match and 'UID' in line and '%CPU' in line:
+            # This is a CPU stats header
+            # Next line(s) contain the data
+            header_split = line.split()
+            cpu_index = 9
+            tid_index = 4
+            for j in range(len(header_split)):
+                if header_split[j] == '%CPU':
+                    cpu_index = j
+                if header_split[j] == 'TID': 
+                    tid_index = j
+            
+            # Next line should be data line
+            i += 1
+            while i < len(lines):
+                data_line = lines[i].strip()
                 
-            elif 'minflt/s' in line:
-                # This is a memory stats header
-                # Next line(s) contain the data
+                # Stop if we hit header or empty line
+                if not data_line or 'UID' in data_line or 'Linux' in data_line:
+                    break
+                
+                # Parse the data line
+                parts = data_line.split()
+                if len(parts) >= 9:
+                    try:                        
+                        cpu = float(parts[cpu_index])
+                        
+                        # Sanity check: CPU should be reasonable
+                        if 0 <= cpu <= 200:
+                            stats['cpu']['values'].append(cpu)
+                            
+                            # Track per-thread stats if TGID/TID available
+                            if len(parts) >= 4:
+                                tid = parts[tid_index]
+                                if tid != '-':
+                                    if tid not in stats['threads']:
+                                        stats['threads'][tid] = {'cpu': [], 'name': parts[-1] if len(parts) > 9 else 'unknown'}
+                                    stats['threads'][tid]['cpu'].append(cpu)
+                    except (ValueError, IndexError) as e:
+                        pass
                 i += 1
-                while i < len(lines):
-                    data_line = lines[i].strip()
-                    
-                    # Stop if we hit another timestamp or empty line
-                    if re.match(r'\d{2}:\d{2}:\d{2}', data_line) or not data_line:
-                        break
-                    
-                    # Skip headers
-                    if 'UID' in data_line or 'minflt' in data_line or 'Linux' in data_line:
-                        i += 1
-                        continue
-                    
-                    # Parse the data line
-                    parts = data_line.split()
-                    # Format: timestamp [AM/PM] UID TGID TID minflt/s majflt/s VSZ RSS %MEM Command
-                    if len(parts) >= 8:
+                
+        elif 'minflt/s' in line:
+            # This is a memory stats header
+            # Next line(s) contain the data
+            header_split = line.split()
+            rss_index = 8
+            for j in range(len(header_split)):
+                if header_split[j] == 'RSS':
+                    rss_index = j
+                    break
+
+            # Next line should be data line
+            i += 1
+            while i < len(lines):
+                data_line = lines[i].strip()
+                
+                # Stop if we hit empty line
+                if not data_line or 'minflt' in data_line or 'Linux' in data_line:
+                    break
+
+                # Parse the data line
+                parts = data_line.split()
+                # Format: timestamp [AM/PM] UID TGID TID minflt/s majflt/s VSZ RSS %MEM Command
+                if len(parts) >= 8:
+                    try:
+                        # Find RSS - it's a large number in KB
+                        rss = None
                         try:
-                            # RSS is typically column 7 (0-indexed)
-                            # But need to account for AM/PM
-                            rss_col = 7
-                            if any(p in ['AM', 'PM'] for p in parts[:3]):
-                                rss_col = 8
-                            
-                            # Find RSS - it's a large number in KB
-                            rss = None
-                            for idx in range(min(rss_col, len(parts)-1), len(parts)):
-                                try:
-                                    val = int(parts[idx])
-                                    if val > 100:  # RSS should be reasonably large
-                                        rss = val
-                                        break
-                                except ValueError:
-                                    continue
-                            
-                            if rss is not None:
-                                stats['memory']['values'].append(rss)
-                        except (ValueError, IndexError):
-                            pass
-                    
-                    i += 1
-                continue
-        
+                            val = int(parts[rss_index])
+                            if val > 100:  # RSS should be reasonably large
+                                rss = val
+                        except ValueError:
+                            continue
+
+                        if rss is not None:
+                            stats['memory']['values'].append(rss)
+                    except (ValueError, IndexError):
+                        pass
+
+                i += 1
         i += 1
     
     # Calculate statistics
@@ -189,37 +156,126 @@ def parse_pidstat_log(filepath):
     
     return stats
 
-def parse_pcap_stats(results_dir):
-    """Extract network statistics from packet capture"""
-    stats = {}
-    pcap_file = os.path.join(results_dir, 'network_capture.pcap')
+def parse_network_log(filepath):
+    """Parse sar network measures output with proper column detection"""
+    stats = {
+        'pkts_recv': {'avg': 0, 'peak': 0, 'values': []},
+        'pkts_sent': {'avg': 0, 'peak': 0, 'values': []},
+        'kib_recv': {'avg': 0, 'peak': 0, 'values': []},
+        'kib_sent': {'avg': 0, 'peak': 0, 'values': []},
+    }
     
-    if not os.path.exists(pcap_file):
+    if not os.path.exists(filepath):
         return stats
     
-    try:
-        import subprocess
-        output = subprocess.check_output(['capinfos', pcap_file], 
-                                        stderr=subprocess.DEVNULL,
-                                        universal_newlines=True)
-        
-        patterns = {
-            'Number of packets': r'Number of packets:\s+(\d+)',
-            'File size (bytes)': r'File size:\s+(\d+)',
-            'Data size (bytes)': r'Data size:\s+(\d+)',
-            'Average packet rate (packets/sec)': r'Average packet rate:\s+([\d.]+)',
-            'Average data rate (bytes/sec)': r'Average data rate:\s+([\d.]+)',
-        }
-        
-        for key, pattern in patterns.items():
-            match = re.search(pattern, output)
-            if match:
-                stats[key] = match.group(1)
-    except:
-        # Fallback: just get file size
-        stats['File size (bytes)'] = str(os.path.getsize(pcap_file))
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
     
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Look for timestamp pattern (handles both AM/PM and 24-hour format)
+        # Pattern: HH:MM:SS AM/PM or HH:MM:SS
+        timestamp_match = re.match(r'(\d{2}:\d{2}:\d{2})\s*(AM|PM)?', line)
+        if timestamp_match and 'IFACE' in line:
+            # This is a network stats header
+            # Next line(s) contain the data
+            header_split = line.split()
+            if_index = 2
+            rxpck_index = 3
+            txpck_index = 4
+            rxkb_index = 5
+            txkb_index = 6
+            for j in range(len(header_split)):
+                if header_split[j] == 'IFACE':
+                    if_index = j
+                if header_split[j] == 'rxpck/s':
+                    rxpck_index = j
+                if header_split[j] == 'txpck/s': 
+                    txpck_index = j
+                if header_split[j] == 'rxkB/s': 
+                    rxkb_index = j
+                if header_split[j] == 'txkB/s': 
+                    txkb_index = j
+            
+            # Next line should be data line
+            i += 1
+            while i < len(lines):
+                data_line = lines[i].strip()
+                
+                # Stop if we hit header or empty line
+                if not data_line or 'IFACE' in data_line or 'Linux' in data_line:
+                    break
+
+                # Do not analyze local interface
+                if data_line[if_index] == 'lo':
+                    i += 1
+                    continue
+                
+                # Parse the data line
+                parts = data_line.split()
+                if len(parts) >= 7:
+                    try:
+                        stats['pkts_recv']['values'].append(float(parts[rxpck_index]))
+                        stats['pkts_sent']['values'].append(float(parts[txpck_index]))
+                        stats['kib_recv']['values'].append(float(parts[rxkb_index]))
+                        stats['kib_sent']['values'].append(float(parts[txkb_index]))
+                    except (ValueError, IndexError) as e:
+                        pass
+                i += 1
+        i += 1
+    
+    # Calculate statistics
+    if stats['pkts_recv']['values']:
+        stats['pkts_recv']['avg'] = sum(stats['pkts_recv']['values']) / len(stats['pkts_recv']['values'])
+        stats['pkts_recv']['peak'] = max(stats['pkts_recv']['values'])
+
+    if stats['pkts_sent']['values']:
+        stats['pkts_sent']['avg'] = sum(stats['pkts_sent']['values']) / len(stats['pkts_sent']['values'])
+        stats['pkts_sent']['peak'] = max(stats['pkts_sent']['values'])
+
+    if stats['kib_recv']['values']:
+        stats['kib_recv']['avg'] = sum(stats['kib_recv']['values']) / len(stats['kib_recv']['values'])
+        stats['kib_recv']['peak'] = max(stats['kib_recv']['values'])
+
+    if stats['kib_sent']['values']:
+        stats['kib_sent']['avg'] = sum(stats['kib_sent']['values']) / len(stats['kib_sent']['values'])
+        stats['kib_sent']['peak'] = max(stats['kib_sent']['values'])
+
     return stats
+
+# def parse_pcap_stats(results_dir):
+#     """Extract network statistics from packet capture"""
+#     stats = {}
+#     pcap_file = os.path.join(results_dir, 'network_capture.pcap')
+    
+#     if not os.path.exists(pcap_file):
+#         return stats
+    
+#     try:
+#         import subprocess
+#         output = subprocess.check_output(['capinfos', pcap_file], 
+#                                         stderr=subprocess.DEVNULL,
+#                                         universal_newlines=True)
+        
+#         patterns = {
+#             'Number of packets': r'Number of packets:\s+(\d+)',
+#             'File size (bytes)': r'File size:\s+(\d+)',
+#             'Data size (bytes)': r'Data size:\s+(\d+)',
+#             'Average packet rate (packets/sec)': r'Average packet rate:\s+([\d.]+)',
+#             'Average data rate (bytes/sec)': r'Average data rate:\s+([\d.]+)',
+#         }
+        
+#         for key, pattern in patterns.items():
+#             match = re.search(pattern, output)
+#             if match:
+#                 stats[key] = match.group(1)
+#     except:
+#         # Fallback: just get file size
+#         stats['File size (bytes)'] = str(os.path.getsize(pcap_file))
+    
+#     return stats
 
 def format_bytes(bytes_val):
     """Format bytes in human readable format"""
@@ -228,7 +284,7 @@ def format_bytes(bytes_val):
     except:
         return str(bytes_val)
     
-    for unit in ['B', 'KB', 'MB', 'GB']:
+    for unit in ['B', 'KiB', 'MiB', 'GiB']:
         if bytes_val < 1024.0:
             return f"{bytes_val:.2f} {unit}"
         bytes_val /= 1024.0
@@ -285,9 +341,9 @@ def main():
             print()
         
         if pidstat_stats['memory']['avg'] > 0:
-            print(f"Average Memory (RSS): {pidstat_stats['memory']['avg']:.0f} KB")
+            print(f"Average Memory (RSS): {pidstat_stats['memory']['avg']:.0f} KiB")
             print(f"Average Memory: {format_bytes(pidstat_stats['memory']['avg'] * 1024)}")
-            print(f"Peak Memory (RSS): {pidstat_stats['memory']['peak']:.0f} KB")
+            print(f"Peak Memory (RSS): {pidstat_stats['memory']['peak']:.0f} KiB")
             print(f"Peak Memory: {format_bytes(pidstat_stats['memory']['peak'] * 1024)}")
             print()
         
@@ -301,14 +357,27 @@ def main():
                     print(f"{tid:<15} {data.get('name', 'unknown'):<20} {data['cpu_avg']:<12.2f} {data['cpu_peak']:<12.2f}")
             print()
     
-    # Network statistics
-    print_section("Network Statistics")
-    pcap_stats = parse_pcap_stats(results_dir)
-    for key, value in pcap_stats.items():
-        if 'bytes' in key.lower():
-            print(f"{key}: {value} ({format_bytes(value)})")
-        else:
-            print(f"{key}: {value}")
+        # Network statistics
+    network_stats_file = os.path.join(results_dir, 'network_stats.log')
+    if os.path.exists(network_stats_file):
+        print_section("Network Statistics")
+        network_stats = parse_network_log(network_stats_file)
+        
+        if network_stats['pkts_recv']['avg'] > 0:
+            print(f"Average Packets Received: {network_stats['pkts_recv']['avg']:.2f} packets/s")
+            print(f"Peak Packets Received: {network_stats['pkts_recv']['peak']:.2f} packets/s")
+        if network_stats['pkts_sent']['avg'] > 0:
+            print(f"Average Packets Sent: {network_stats['pkts_sent']['avg']:.2f} packets/s")
+            print(f"Peak Packets Sent: {network_stats['pkts_sent']['peak']:.2f} packets/s")
+            print()
+        
+        if network_stats['kib_recv']['avg'] > 0:
+            print(f"Average KiB Received: {network_stats['kib_recv']['avg']:.2f} KiB/s")
+            print(f"Peak KiB Received: {network_stats['kib_recv']['peak']:.2f} KiB/s")
+        if network_stats['kib_sent']['avg'] > 0:
+            print(f"Average KiB Sent: {network_stats['kib_sent']['avg']:.2f} KiB/s")
+            print(f"Peak KiB Sent: {network_stats['kib_sent']['peak']:.2f} KiB/s")
+            print()
     
     print()
     print("=" * 80)
