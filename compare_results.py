@@ -42,88 +42,245 @@ def parse_time_log(filepath):
     return stats
 
 def parse_pidstat_log(filepath):
-    """Parse pidstat output for averages and peaks"""
-    stats = {'avg_cpu': 0, 'avg_memory': 0, 'peak_cpu': 0, 'peak_memory': 0}
+    """Parse pidstat output with -t flag (threads) and proper column detection"""
+    stats = {
+        'cpu': {'avg': 0, 'peak': 0, 'values': []},
+        'memory': {'avg': 0, 'peak': 0, 'values': []},
+        'threads': {}
+    }
+    
     if not os.path.exists(filepath):
         return stats
     
-    cpu_values = []
-    mem_values = []
-    
     with open(filepath, 'r') as f:
         lines = f.readlines()
-        i = 0
-        while i < len(lines):
-            line = lines[i].strip()
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Look for timestamp pattern (handles both AM/PM and 24-hour format)
+        # Pattern: HH:MM:SS AM/PM or HH:MM:SS
+        timestamp_match = re.match(r'(\d{2}:\d{2}:\d{2})\s*(AM|PM)?', line)
+        if timestamp_match and 'UID' in line and '%CPU' in line:
+            # This is a CPU stats header
+            # Next line(s) contain the data
+            header_split = line.split()
+            cpu_index = 9
+            tid_index = 4
+            for j in range(len(header_split)):
+                if header_split[j] == '%CPU':
+                    cpu_index = j
+                if header_split[j] == 'TID': 
+                    tid_index = j
             
-            # Look for timestamp pattern followed by data
-            if re.match(r'\d{2}:\d{2}:\d{2}', line):
-                # Check what type of data follows
-                if '%usr' in line or '%CPU' in line:
-                    # Next line has CPU data
-                    i += 1
-                    if i < len(lines):
-                        parts = lines[i].split()
-                        if len(parts) >= 8 and parts[7].replace('.', '').isdigit():
-                            try:
-                                cpu = float(parts[7])
-                                if cpu <= 100:  # Sanity check
-                                    cpu_values.append(cpu)
-                            except ValueError:
-                                pass
-                elif 'minflt/s' in line:
-                    # Next line has memory data
-                    i += 1
-                    if i < len(lines):
-                        parts = lines[i].split()
-                        if len(parts) >= 6 and parts[5].isdigit():
-                            try:
-                                mem = float(parts[5])
-                                mem_values.append(mem)
-                            except ValueError:
-                                pass
+            # Next line should be data line
             i += 1
+            while i < len(lines):
+                data_line = lines[i].strip()
+                
+                # Stop if we hit header or empty line
+                if not data_line or 'UID' in data_line or 'Linux' in data_line:
+                    break
+                
+                # Parse the data line
+                parts = data_line.split()
+                if len(parts) >= 9:
+                    try:                        
+                        cpu = float(parts[cpu_index])
+                        
+                        # Sanity check: CPU should be reasonable
+                        if 0 <= cpu <= 200:
+                            stats['cpu']['values'].append(cpu)
+                            
+                            # Track per-thread stats if TGID/TID available
+                            if len(parts) >= 4:
+                                tid = parts[tid_index]
+                                if tid != '-':
+                                    if tid not in stats['threads']:
+                                        stats['threads'][tid] = {'cpu': [], 'name': parts[-1] if len(parts) > 9 else 'unknown'}
+                                    stats['threads'][tid]['cpu'].append(cpu)
+                    except (ValueError, IndexError) as e:
+                        pass
+                i += 1
+                
+        elif 'minflt/s' in line:
+            # This is a memory stats header
+            # Next line(s) contain the data
+            header_split = line.split()
+            rss_index = 8
+            for j in range(len(header_split)):
+                if header_split[j] == 'RSS':
+                    rss_index = j
+                    break
+
+            # Next line should be data line
+            i += 1
+            while i < len(lines):
+                data_line = lines[i].strip()
+                
+                # Stop if we hit empty line
+                if not data_line or 'minflt' in data_line or 'Linux' in data_line:
+                    break
+
+                # Parse the data line
+                parts = data_line.split()
+                # Format: timestamp [AM/PM] UID TGID TID minflt/s majflt/s VSZ RSS %MEM Command
+                if len(parts) >= 8:
+                    try:
+                        # Find RSS - it's a large number in KB
+                        rss = None
+                        try:
+                            val = int(parts[rss_index])
+                            if val > 100:  # RSS should be reasonably large
+                                rss = val
+                        except ValueError:
+                            continue
+
+                        if rss is not None:
+                            stats['memory']['values'].append(rss)
+                    except (ValueError, IndexError):
+                        pass
+
+                i += 1
+        i += 1
     
-    if cpu_values:
-        stats['avg_cpu'] = np.mean(cpu_values)
-        stats['peak_cpu'] = np.max(cpu_values)
+    # Calculate statistics
+    if stats['cpu']['values']:
+        stats['cpu']['avg'] = sum(stats['cpu']['values']) / len(stats['cpu']['values'])
+        stats['cpu']['peak'] = max(stats['cpu']['values'])
     
-    if mem_values:
-        stats['avg_memory'] = np.mean(mem_values)
-        stats['peak_memory'] = np.max(mem_values)
+    if stats['memory']['values']:
+        stats['memory']['avg'] = sum(stats['memory']['values']) / len(stats['memory']['values'])
+        stats['memory']['peak'] = max(stats['memory']['values'])
+    
+    # Calculate per-thread averages
+    for tid, data in stats['threads'].items():
+        if data['cpu']:
+            data['cpu_avg'] = sum(data['cpu']) / len(data['cpu'])
+            data['cpu_peak'] = max(data['cpu'])
     
     return stats
 
-def parse_pcap_stats(results_dir):
-    """Extract network statistics from packet capture"""
-    stats = {}
-    pcap_file = os.path.join(results_dir, 'network_capture.pcap')
+def parse_network_log(filepath):
+    """Parse sar network measures output with proper column detection"""
+    stats = {
+        'pkts_recv': {'avg': 0, 'peak': 0, 'values': []},
+        'pkts_sent': {'avg': 0, 'peak': 0, 'values': []},
+        'kib_recv': {'avg': 0, 'peak': 0, 'values': []},
+        'kib_sent': {'avg': 0, 'peak': 0, 'values': []},
+    }
     
-    if not os.path.exists(pcap_file):
+    if not os.path.exists(filepath):
         return stats
     
-    try:
-        import subprocess
-        output = subprocess.check_output(['capinfos', pcap_file], 
-                                        stderr=subprocess.DEVNULL,
-                                        universal_newlines=True)
-        
-        patterns = {
-            'total_packets': r'Number of packets:\s+(\d+)',
-            'file_size_bytes': r'File size:\s+(\d+)',
-            'data_size_bytes': r'Data size:\s+(\d+)',
-            'avg_packet_rate': r'Average packet rate:\s+([\d.]+)',
-            'avg_data_rate': r'Average data rate:\s+([\d.]+)',
-        }
-        
-        for key, pattern in patterns.items():
-            match = re.search(pattern, output)
-            if match:
-                stats[key] = float(match.group(1))
-    except:
-        stats['file_size_bytes'] = os.path.getsize(pcap_file) if os.path.exists(pcap_file) else 0
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
     
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Look for timestamp pattern (handles both AM/PM and 24-hour format)
+        # Pattern: HH:MM:SS AM/PM or HH:MM:SS
+        timestamp_match = re.match(r'(\d{2}:\d{2}:\d{2})\s*(AM|PM)?', line)
+        if timestamp_match and 'IFACE' in line:
+            # This is a network stats header
+            # Next line(s) contain the data
+            header_split = line.split()
+            if_index = 2
+            rxpck_index = 3
+            txpck_index = 4
+            rxkb_index = 5
+            txkb_index = 6
+            for j in range(len(header_split)):
+                if header_split[j] == 'IFACE':
+                    if_index = j
+                if header_split[j] == 'rxpck/s':
+                    rxpck_index = j
+                if header_split[j] == 'txpck/s': 
+                    txpck_index = j
+                if header_split[j] == 'rxkB/s': 
+                    rxkb_index = j
+                if header_split[j] == 'txkB/s': 
+                    txkb_index = j
+            
+            # Next line should be data line
+            i += 1
+            while i < len(lines):
+                data_line = lines[i].strip()
+                
+                # Stop if we hit header or empty line
+                if not data_line or 'IFACE' in data_line or 'Linux' in data_line:
+                    break
+
+                # Do not analyze local interface
+                if data_line[if_index] == 'lo':
+                    i += 1
+                    continue
+                
+                # Parse the data line
+                parts = data_line.split()
+                if len(parts) >= 7:
+                    try:
+                        stats['pkts_recv']['values'].append(float(parts[rxpck_index]))
+                        stats['pkts_sent']['values'].append(float(parts[txpck_index]))
+                        stats['kib_recv']['values'].append(float(parts[rxkb_index]))
+                        stats['kib_sent']['values'].append(float(parts[txkb_index]))
+                    except (ValueError, IndexError) as e:
+                        pass
+                i += 1
+        i += 1
+    
+    # Calculate statistics
+    if stats['pkts_recv']['values']:
+        stats['pkts_recv']['avg'] = sum(stats['pkts_recv']['values']) / len(stats['pkts_recv']['values'])
+        stats['pkts_recv']['peak'] = max(stats['pkts_recv']['values'])
+
+    if stats['pkts_sent']['values']:
+        stats['pkts_sent']['avg'] = sum(stats['pkts_sent']['values']) / len(stats['pkts_sent']['values'])
+        stats['pkts_sent']['peak'] = max(stats['pkts_sent']['values'])
+
+    if stats['kib_recv']['values']:
+        stats['kib_recv']['avg'] = sum(stats['kib_recv']['values']) / len(stats['kib_recv']['values'])
+        stats['kib_recv']['peak'] = max(stats['kib_recv']['values'])
+
+    if stats['kib_sent']['values']:
+        stats['kib_sent']['avg'] = sum(stats['kib_sent']['values']) / len(stats['kib_sent']['values'])
+        stats['kib_sent']['peak'] = max(stats['kib_sent']['values'])
+
     return stats
+
+# def parse_pcap_stats(results_dir):
+#     """Extract network statistics from packet capture"""
+#     stats = {}
+#     pcap_file = os.path.join(results_dir, 'network_capture.pcap')
+    
+#     if not os.path.exists(pcap_file):
+#         return stats
+    
+#     try:
+#         import subprocess
+#         output = subprocess.check_output(['capinfos', pcap_file], 
+#                                         stderr=subprocess.DEVNULL,
+#                                         universal_newlines=True)
+        
+#         patterns = {
+#             'total_packets': r'Number of packets:\s+(\d+)',
+#             'file_size_bytes': r'File size:\s+(\d+)',
+#             'data_size_bytes': r'Data size:\s+(\d+)',
+#             'avg_packet_rate': r'Average packet rate:\s+([\d.]+)',
+#             'avg_data_rate': r'Average data rate:\s+([\d.]+)',
+#         }
+        
+#         for key, pattern in patterns.items():
+#             match = re.search(pattern, output)
+#             if match:
+#                 stats[key] = float(match.group(1))
+#     except:
+#         stats['file_size_bytes'] = os.path.getsize(pcap_file) if os.path.exists(pcap_file) else 0
+    
+#     return stats
 
 def load_results(results_dir):
     """Load all results from a test directory"""
@@ -132,7 +289,7 @@ def load_results(results_dir):
     results = {
         'time_stats': parse_time_log(os.path.join(server_dir, 'server_time.log')),
         'pidstat': parse_pidstat_log(os.path.join(server_dir, 'pidstat.log')),
-        'network': parse_pcap_stats(server_dir),
+        'network': parse_network_log(os.path.join(server_dir, 'network_stats.log')),
     }
     
     return results
@@ -167,7 +324,13 @@ def aggregate_results(results_list):
         metrics = defaultdict(list)
         for result in results_list:
             for key, value in result[category].items():
-                if value > 0:  # Only include valid values
+                if isinstance(value, dict):
+                    if 'value' in value:
+                        metrics[key].append(value['values'])
+                    else:
+                        # todo: handle threads
+                        pass
+                elif value > 0: 
                     metrics[key].append(value)
         
         # Calculate mean and std

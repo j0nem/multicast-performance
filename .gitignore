@@ -1,5 +1,6 @@
 results/*
-old/*
+todo.md
+venv
 
 *.conf
 !*.conf.example

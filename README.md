@@ -146,6 +146,12 @@ Run the entire distributed test from your control machine:
 # Run unicast test (3 iterations)
 ./orchestrator.sh unicast_test.conf
 
+# Get averaged results for multiple iterations of the test scenario results
+./server_analysis_aggregator.py results
+# This will:
+# - Average results across all iterations for each scenario
+# - Print the results in a readable way to stdout
+
 # Compare results with averaging and plots
 ./compare_results.py "results/multicast_test_iter*" "results/unicast_test_iter*"
 # This will:
@@ -166,6 +172,14 @@ Run the entire distributed test from your control machine:
    - Collect all results automatically
    - Generate analysis reports
 4. Store results in separate iteration directories
+
+**Run multiple scenarios:**
+
+Use the `run_all.sh` script to run multiple test scenarios/configurations one after the other:
+
+```bash
+./run_all.sh <config_folder>
+```
 
 ### Option 2: Manual Per-VM Execution
 
@@ -191,6 +205,9 @@ scp -r user@server-vm:~/quic_tests/results/test_name_* ./local_results/
 
 # Analyze
 python3 analyze_results.py ./local_results/test_name_*
+
+# Aggregate across iterations
+python3 server_analysis_aggregator.py ./local_results/
 ```
 
 ## Understanding the Results
