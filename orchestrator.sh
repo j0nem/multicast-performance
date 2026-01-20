@@ -14,14 +14,18 @@ CONFIG_FILE=$1
 # Parse config file (simple bash parsing)
 SERVER_VM=$(grep "^server_vm:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
 CLIENT_VMS=($(grep -A10 "^client_vms:" "$CONFIG_FILE" | grep "^  -" | sed 's/^  - //'))
-CLIENTS_PER_VM=$(grep "^clients_per_vm:" "$CONFIG_FILE" | cut -d: -f2- | xargs || echo "1")
+CLIENTS_PER_VM=$(grep "^clients_per_vm:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
 TEST_NAME=$(grep "^test_name:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
 SERVER_BIN=$(grep "^server_binary:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
 CLIENT_BIN=$(grep "^client_binary:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
 SERVER_ARGS=$(grep "^server_args:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
 CLIENT_ARGS=$(grep "^client_args:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
-ITERATIONS=$(grep "^iterations:" "$CONFIG_FILE" | cut -d: -f2- | xargs || echo "1")
-MAX_DURATION=$(grep "^max_test_duration:" "$CONFIG_FILE" | cut -d: -f2- | xargs || echo "0")
+ITERATIONS=$(grep "^iterations:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
+MAX_DURATION=$(grep "^max_test_duration:" "$CONFIG_FILE" | cut -d: -f2- | xargs)
+
+CLIENTS_PER_VM=${CLIENTS_PER_VM:-1}
+ITERATIONS=${ITERATIONS:-1}
+MAX_DURATION=${MAX_DURATION:-0}
 
 # Check if this is an iteration run (second parameter)
 CURRENT_ITERATION=${2:-0}
@@ -82,7 +86,7 @@ echo "Total Clients: $((${#CLIENT_VMS[@]} * CLIENTS_PER_VM))"
 if [ "$ITERATIONS" -gt 1 ]; then
     echo "Iteration: $CURRENT_ITERATION / $ITERATIONS"
 fi
-if [ "$MAX_DURATION" -gt 0 ]; then
+if [ $MAX_DURATION -gt 0 ]; then
     echo "Max duration: ${MAX_DURATION}s"
 fi
 echo ""

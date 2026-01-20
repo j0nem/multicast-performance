@@ -44,8 +44,12 @@ def parse_time_log(filepath):
 def parse_pidstat_log(filepath):
     """Parse pidstat output with -t flag (threads) and proper column detection"""
     stats = {
-        'cpu': {'avg': 0, 'peak': 0, 'values': []},
-        'memory': {'avg': 0, 'peak': 0, 'values': []},
+        'cpu_values': [],
+        'cpu_avg': 0.0,
+        'cpu_peak': 0.0,
+        'memory_values': [],
+        'memory_avg': 0.0,
+        'memory_peak': 0.0,
         'threads': {}
     }
     
@@ -91,7 +95,7 @@ def parse_pidstat_log(filepath):
                         
                         # Sanity check: CPU should be reasonable
                         if 0 <= cpu <= 200:
-                            stats['cpu']['values'].append(cpu)
+                            stats['cpu_values'].append(cpu)
                             
                             # Track per-thread stats if TGID/TID available
                             if len(parts) >= 4:
@@ -138,7 +142,7 @@ def parse_pidstat_log(filepath):
                             continue
 
                         if rss is not None:
-                            stats['memory']['values'].append(rss)
+                            stats['memory_values'].append(rss)
                     except (ValueError, IndexError):
                         pass
 
@@ -146,13 +150,13 @@ def parse_pidstat_log(filepath):
         i += 1
     
     # Calculate statistics
-    if stats['cpu']['values']:
-        stats['cpu']['avg'] = sum(stats['cpu']['values']) / len(stats['cpu']['values'])
-        stats['cpu']['peak'] = max(stats['cpu']['values'])
+    if stats['cpu_values']:
+        stats['cpu_avg'] = sum(stats['cpu_values']) / len(stats['cpu_values'])
+        stats['cpu_peak'] = max(stats['cpu_values'])
     
-    if stats['memory']['values']:
-        stats['memory']['avg'] = sum(stats['memory']['values']) / len(stats['memory']['values'])
-        stats['memory']['peak'] = max(stats['memory']['values'])
+    if stats['memory_values']:
+        stats['memory_avg'] = sum(stats['memory_values']) / len(stats['memory_values'])
+        stats['memory_peak'] = max(stats['memory_values'])
     
     # Calculate per-thread averages
     for tid, data in stats['threads'].items():
@@ -165,10 +169,18 @@ def parse_pidstat_log(filepath):
 def parse_network_log(filepath):
     """Parse sar network measures output with proper column detection"""
     stats = {
-        'pkts_recv': {'avg': 0, 'peak': 0, 'values': []},
-        'pkts_sent': {'avg': 0, 'peak': 0, 'values': []},
-        'kib_recv': {'avg': 0, 'peak': 0, 'values': []},
-        'kib_sent': {'avg': 0, 'peak': 0, 'values': []},
+        'pkts_recv_values': [],
+        'pkts_recv_avg': 0.0,
+        'pkts_recv_peak': 0.0,
+        'pkts_sent_values': [],
+        'pkts_sent_avg': 0.0,
+        'pkts_sent_peak': 0.0,
+        'kib_recv_values': [],
+        'kib_recv_avg': 0.0,
+        'kib_recv_peak': 0.0,
+        'kib_sent_values': [],
+        'kib_sent_avg': 0.0,
+        'kib_sent_peak': 0.0,
     }
     
     if not os.path.exists(filepath):
@@ -223,31 +235,34 @@ def parse_network_log(filepath):
                 parts = data_line.split()
                 if len(parts) >= 7:
                     try:
-                        stats['pkts_recv']['values'].append(float(parts[rxpck_index]))
-                        stats['pkts_sent']['values'].append(float(parts[txpck_index]))
-                        stats['kib_recv']['values'].append(float(parts[rxkb_index]))
-                        stats['kib_sent']['values'].append(float(parts[txkb_index]))
+                        stats['pkts_recv_values'].append(float(parts[rxpck_index]))
+                        stats['pkts_sent_values'].append(float(parts[txpck_index]))
+                        stats['kib_recv_values'].append(float(parts[rxkb_index]))
+                        stats['kib_sent_values'].append(float(parts[txkb_index]))
                     except (ValueError, IndexError) as e:
                         pass
                 i += 1
         i += 1
     
     # Calculate statistics
-    if stats['pkts_recv']['values']:
-        stats['pkts_recv']['avg'] = sum(stats['pkts_recv']['values']) / len(stats['pkts_recv']['values'])
-        stats['pkts_recv']['peak'] = max(stats['pkts_recv']['values'])
+    if stats['pkts_recv_values']:
+        stats['pkts_recv_avg'] = sum(stats['pkts_recv_values']) / len(stats['pkts_recv_values'])
+        stats['pkts_recv_peak'] = max(stats['pkts_recv_values'])
 
-    if stats['pkts_sent']['values']:
-        stats['pkts_sent']['avg'] = sum(stats['pkts_sent']['values']) / len(stats['pkts_sent']['values'])
-        stats['pkts_sent']['peak'] = max(stats['pkts_sent']['values'])
+    if stats['pkts_sent_values']:
+        stats['pkts_sent_avg'] = sum(stats['pkts_sent_values']) / len(stats['pkts_sent_values'])
+        stats['pkts_sent_peak'] = max(stats['pkts_sent_values'])
 
-    if stats['kib_recv']['values']:
-        stats['kib_recv']['avg'] = sum(stats['kib_recv']['values']) / len(stats['kib_recv']['values'])
-        stats['kib_recv']['peak'] = max(stats['kib_recv']['values'])
+        stats['pkts_total_avg'] = (sum(stats['pkts_sent_values']) + sum(stats['pkts_recv_values'])) / (len(stats['pkts_sent_values']) + len(stats['pkts_recv_values']))
+        stats['pkts_total_peak'] = max(stats['pkts_sent_values'])
 
-    if stats['kib_sent']['values']:
-        stats['kib_sent']['avg'] = sum(stats['kib_sent']['values']) / len(stats['kib_sent']['values'])
-        stats['kib_sent']['peak'] = max(stats['kib_sent']['values'])
+    if stats['kib_recv_values']:
+        stats['kib_recv_avg'] = sum(stats['kib_recv_values']) / len(stats['kib_recv_values'])
+        stats['kib_recv_peak'] = max(stats['kib_recv_values'])
+
+    if stats['kib_sent_values']:
+        stats['kib_sent_avg'] = sum(stats['kib_sent_values']) / len(stats['kib_sent_values'])
+        stats['kib_sent_peak'] = max(stats['kib_sent_values'])
 
     return stats
 
@@ -324,15 +339,9 @@ def aggregate_results(results_list):
         metrics = defaultdict(list)
         for result in results_list:
             for key, value in result[category].items():
-                if isinstance(value, dict):
-                    if 'value' in value:
-                        metrics[key].append(value['values'])
-                    else:
-                        # todo: handle threads
-                        pass
-                elif value > 0: 
+                if (isinstance(value, float) or isinstance(value, int)) and value > 0:
                     metrics[key].append(value)
-        
+
         # Calculate mean and std
         for key, values in metrics.items():
             if values:
@@ -348,7 +357,7 @@ def aggregate_results(results_list):
 
 def format_bytes(bytes_val):
     """Format bytes in human readable format"""
-    for unit in ['B', 'KB', 'MB', 'GB']:
+    for unit in ['B', 'KiB', 'MiB', 'GiB']:
         if bytes_val < 1024.0:
             return f"{bytes_val:.2f} {unit}"
         bytes_val /= 1024.0
@@ -360,11 +369,11 @@ def calculate_improvement(multicast_val, unicast_val):
         return 0
     return ((unicast_val - multicast_val) / unicast_val) * 100
 
-def print_comparison(multicast_agg, unicast_agg, multicast_count, unicast_count):
+def print_comparison(multicast_agg, unicast_agg, multicast_count, unicast_count, title):
     """Print detailed comparison"""
     
     print("=" * 80)
-    print("MULTICAST vs UNICAST QUIC PERFORMANCE COMPARISON")
+    print(f"{title}: Multicast vs Unicast performance comparison")
     print("=" * 80)
     print()
     print(f"Multicast tests: {multicast_count}")
@@ -376,18 +385,18 @@ def print_comparison(multicast_agg, unicast_agg, multicast_count, unicast_count)
     print("CPU USAGE")
     print("=" * 80)
     
-    m_cpu = multicast_agg['pidstat'].get('avg_cpu', {}).get('mean', 0)
-    m_cpu_std = multicast_agg['pidstat'].get('avg_cpu', {}).get('std', 0)
-    u_cpu = unicast_agg['pidstat'].get('avg_cpu', {}).get('mean', 0)
-    u_cpu_std = unicast_agg['pidstat'].get('avg_cpu', {}).get('std', 0)
+    m_cpu = multicast_agg['pidstat'].get('cpu_avg', {}).get('mean', 0)
+    m_cpu_std = multicast_agg['pidstat'].get('cpu_avg', {}).get('std', 0)
+    u_cpu = unicast_agg['pidstat'].get('cpu_avg', {}).get('mean', 0)
+    u_cpu_std = unicast_agg['pidstat'].get('cpu_avg', {}).get('std', 0)
     cpu_improvement = calculate_improvement(m_cpu, u_cpu)
     
     print(f"{'Metric':<30} {'Multicast':<25} {'Unicast':<25} {'Improvement':<15}")
     print("-" * 95)
     print(f"{'Avg CPU %':<30} {f'{m_cpu:.2f} ± {m_cpu_std:.2f}':<25} {f'{u_cpu:.2f} ± {u_cpu_std:.2f}':<25} {cpu_improvement:>+.2f}%")
     
-    m_cpu_peak = multicast_agg['pidstat'].get('peak_cpu', {}).get('mean', 0)
-    u_cpu_peak = unicast_agg['pidstat'].get('peak_cpu', {}).get('mean', 0)
+    m_cpu_peak = multicast_agg['pidstat'].get('cpu_peak', {}).get('mean', 0)
+    u_cpu_peak = unicast_agg['pidstat'].get('cpu_peak', {}).get('mean', 0)
     cpu_peak_improvement = calculate_improvement(m_cpu_peak, u_cpu_peak)
     
     print(f"{'Peak CPU %':<30} {m_cpu_peak:<25.2f} {u_cpu_peak:<25.2f} {cpu_peak_improvement:>+.2f}%")
@@ -398,15 +407,15 @@ def print_comparison(multicast_agg, unicast_agg, multicast_count, unicast_count)
     print("MEMORY USAGE")
     print("=" * 80)
     
-    m_mem = multicast_agg['pidstat'].get('avg_memory', {}).get('mean', 0)
-    m_mem_std = multicast_agg['pidstat'].get('avg_memory', {}).get('std', 0)
-    u_mem = unicast_agg['pidstat'].get('avg_memory', {}).get('mean', 0)
-    u_mem_std = unicast_agg['pidstat'].get('avg_memory', {}).get('std', 0)
+    m_mem = multicast_agg['pidstat'].get('memory_avg', {}).get('mean', 0)
+    m_mem_std = multicast_agg['pidstat'].get('memory_avg', {}).get('std', 0)
+    u_mem = unicast_agg['pidstat'].get('memory_avg', {}).get('mean', 0)
+    u_mem_std = unicast_agg['pidstat'].get('memory_avg', {}).get('std', 0)
     mem_improvement = calculate_improvement(m_mem, u_mem)
     
     print(f"{'Metric':<30} {'Multicast':<25} {'Unicast':<25} {'Improvement':<15}")
     print("-" * 95)
-    print(f"{'Avg Memory (KB)':<30} {f'{m_mem:.0f} ± {m_mem_std:.0f}':<25} {f'{u_mem:.0f} ± {u_mem_std:.0f}':<25} {mem_improvement:>+.2f}%")
+    print(f"{'Avg Memory (KiB)':<30} {f'{m_mem:.0f} ± {m_mem_std:.0f}':<25} {f'{u_mem:.0f} ± {u_mem_std:.0f}':<25} {mem_improvement:>+.2f}%")
     print(f"{'Avg Memory':<30} {format_bytes(m_mem*1024):<25} {format_bytes(u_mem*1024):<25}")
     print()
     
@@ -415,27 +424,38 @@ def print_comparison(multicast_agg, unicast_agg, multicast_count, unicast_count)
     print("NETWORK USAGE")
     print("=" * 80)
     
-    m_packets = multicast_agg['network'].get('total_packets', {}).get('mean', 0)
-    u_packets = unicast_agg['network'].get('total_packets', {}).get('mean', 0)
-    packets_improvement = calculate_improvement(m_packets, u_packets)
+    m_packets_sent = multicast_agg['network'].get('pkts_sent_avg', {}).get('mean', 0)
+    u_packets_sent = unicast_agg['network'].get('pkts_sent_avg', {}).get('mean', 0)
+    packets_sent_improvement = calculate_improvement(m_packets_sent, u_packets_sent)
+
+    m_packets_recv = multicast_agg['network'].get('pkts_recv_avg', {}).get('mean', 0)
+    u_packets_recv = unicast_agg['network'].get('pkts_recv_avg', {}).get('mean', 0)
+    packets_recv_improvement = calculate_improvement(m_packets_recv, u_packets_recv)
     
-    m_data = multicast_agg['network'].get('data_size_bytes', {}).get('mean', 0)
-    u_data = unicast_agg['network'].get('data_size_bytes', {}).get('mean', 0)
-    data_improvement = calculate_improvement(m_data, u_data)
+    m_data_sent = multicast_agg['network'].get('kib_sent_avg', {}).get('mean', 0)
+    u_data_sent = unicast_agg['network'].get('kib_sent_avg', {}).get('mean', 0)
+    data_sent_improvement = calculate_improvement(m_data_sent, u_data_sent)
+
+    m_data_recv = multicast_agg['network'].get('kib_recv_avg', {}).get('mean', 0)
+    u_data_recv = unicast_agg['network'].get('kib_recv_avg', {}).get('mean', 0)
+    data_recv_improvement = calculate_improvement(m_data_recv, u_data_recv)
     
     print(f"{'Metric':<30} {'Multicast':<25} {'Unicast':<25} {'Improvement':<15}")
     print("-" * 95)
-    print(f"{'Total Packets':<30} {m_packets:<25.0f} {u_packets:<25.0f} {packets_improvement:>+.2f}%")
-    print(f"{'Total Data':<30} {format_bytes(m_data):<25} {format_bytes(u_data):<25} {data_improvement:>+.2f}%")
+    print(f"{'Total Packets Sent':<30} {m_packets_sent:<25.0f} {u_packets_sent:<25.0f} {packets_sent_improvement:>+.2f}%")
+    print(f"{'Total Packets Received':<30} {m_packets_recv:<25.0f} {u_packets_recv:<25.0f} {packets_recv_improvement:>+.2f}%")
+    print(f"{'Total Data Sent':<30} {format_bytes(m_data_sent):<25} {format_bytes(u_data_sent):<25} {data_sent_improvement:>+.2f}%")
+    print(f"{'Total Data Received':<30} {format_bytes(m_data_recv):<25} {format_bytes(u_data_recv):<25} {data_recv_improvement:>+.2f}%")
     print()
     
     return {
         'cpu': cpu_improvement,
         'memory': mem_improvement,
-        'network': data_improvement
+        'network_sent': data_sent_improvement,
+        'network_received': data_recv_improvement
     }
 
-def plot_comparison(multicast_agg, unicast_agg, output_dir='results'):
+def plot_comparison(multicast_agg, unicast_agg, title, output_dir='results'):
     """Create comparison plots"""
     
     try:
@@ -447,9 +467,9 @@ def plot_comparison(multicast_agg, unicast_agg, output_dir='results'):
     os.makedirs(output_dir, exist_ok=True)
     
     # CPU Comparison
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
     
-    metrics = ['avg_cpu', 'peak_cpu']
+    metrics = ['cpu_avg', 'cpu_peak']
     labels = ['Average CPU %', 'Peak CPU %']
     
     m_vals = [multicast_agg['pidstat'].get(m, {}).get('mean', 0) for m in metrics]
@@ -457,20 +477,21 @@ def plot_comparison(multicast_agg, unicast_agg, output_dir='results'):
     m_errs = [multicast_agg['pidstat'].get(m, {}).get('std', 0) for m in metrics]
     u_errs = [unicast_agg['pidstat'].get(m, {}).get('std', 0) for m in metrics]
     
-    x = np.arange(len(labels))
+    x1 = np.arange(len(labels))
     width = 0.35
     
-    ax1.bar(x - width/2, m_vals, width, yerr=m_errs, label='Multicast', alpha=0.8, capsize=5)
-    ax1.bar(x + width/2, u_vals, width, yerr=u_errs, label='Unicast', alpha=0.8, capsize=5)
+    ax1 = axs[0][0]
+    ax1.bar(x1 - width/2, m_vals, width, yerr=m_errs, label='Multicast', alpha=0.8, capsize=5)
+    ax1.bar(x1 + width/2, u_vals, width, yerr=u_errs, label='Unicast', alpha=0.8, capsize=5)
     ax1.set_ylabel('CPU Usage (%)')
     ax1.set_title('CPU Usage Comparison')
-    ax1.set_xticks(x)
+    ax1.set_xticks(x1)
     ax1.set_xticklabels(labels)
     ax1.legend()
     ax1.grid(axis='y', alpha=0.3)
     
     # Memory Comparison
-    mem_metrics = ['avg_memory', 'peak_memory']
+    mem_metrics = ['memory_avg', 'memory_peak']
     mem_labels = ['Average Memory', 'Peak Memory']
     
     m_mem_vals = [multicast_agg['pidstat'].get(m, {}).get('mean', 0)/1024 for m in mem_metrics]
@@ -478,88 +499,78 @@ def plot_comparison(multicast_agg, unicast_agg, output_dir='results'):
     m_mem_errs = [multicast_agg['pidstat'].get(m, {}).get('std', 0)/1024 for m in mem_metrics]
     u_mem_errs = [unicast_agg['pidstat'].get(m, {}).get('std', 0)/1024 for m in mem_metrics]
     
-    x = np.arange(len(mem_labels))
+    x2 = np.arange(len(mem_labels))
     
-    ax2.bar(x - width/2, m_mem_vals, width, yerr=m_mem_errs, label='Multicast', alpha=0.8, capsize=5)
-    ax2.bar(x + width/2, u_mem_vals, width, yerr=u_mem_errs, label='Unicast', alpha=0.8, capsize=5)
-    ax2.set_ylabel('Memory Usage (MB)')
+    ax2 = axs[0][1]
+    ax2.bar(x2 - width/2, m_mem_vals, width, yerr=m_mem_errs, label='Multicast', alpha=0.8, capsize=5)
+    ax2.bar(x2 + width/2, u_mem_vals, width, yerr=u_mem_errs, label='Unicast', alpha=0.8, capsize=5)
+    ax2.set_ylabel('Memory Usage (MiB)')
     ax2.set_title('Memory Usage Comparison')
-    ax2.set_xticks(x)
+    ax2.set_xticks(x2)
     ax2.set_xticklabels(mem_labels)
     ax2.legend()
     ax2.grid(axis='y', alpha=0.3)
     
+    # Network Packets Comparison    
+    netpkt_metrics = ['pkts_sent_avg', 'pkts_recv_avg']
+    netpkt_labels = ['Total Packets Sent', 'Total Packets Recieved']
+    
+    m_netp_vals = [multicast_agg['network'].get(m, {}).get('mean', 0) for m in netpkt_metrics]
+    u_netp_vals = [unicast_agg['network'].get(m, {}).get('mean', 0) for m in netpkt_metrics]
+    m_netp_errs = [multicast_agg['network'].get(m, {}).get('std', 0) for m in netpkt_metrics]
+    u_netp_errs = [unicast_agg['network'].get(m, {}).get('std', 0) for m in netpkt_metrics]
+    
+    x3 = np.arange(len(netpkt_labels))
+    
+    ax3 = axs[1][0]
+    ax3.bar(x3 - width/2, m_netp_vals, width, yerr=m_netp_errs, label='Multicast', alpha=0.8, capsize=5)
+    ax3.bar(x3 + width/2, u_netp_vals, width, yerr=u_netp_errs, label='Unicast', alpha=0.8, capsize=5)
+    ax3.set_ylabel('Number of Packets')
+    ax3.set_title('Total Packets Comparison')
+    ax3.set_xticks(x3)
+    ax3.set_xticklabels(netpkt_labels)
+    ax3.legend()
+    ax3.grid(axis='y', alpha=0.3)
+    
+    # Network Data Comparison
+    netdata_metrics = ['kib_sent_avg', 'kib_recv_avg']
+    netdata_labels = ['Data Sent (MiB)', 'Data Received (MiB)']
+    
+    m_netd_vals = [multicast_agg['network'].get(m, {}).get('mean', 0)/1024 for m in netdata_metrics]
+    u_netd_vals = [unicast_agg['network'].get(m, {}).get('mean', 0)/1024 for m in netdata_metrics]
+    m_netd_errs = [multicast_agg['network'].get(m, {}).get('std', 0)/1024 for m in netdata_metrics]
+    u_netd_errs = [unicast_agg['network'].get(m, {}).get('std', 0)/1024 for m in netdata_metrics]
+    
+    x4 = np.arange(len(netdata_labels))
+    
+    ax4 = axs[1][1]
+    ax4.bar(x4 - width/2, m_netd_vals, width, yerr=m_netd_errs, label='Multicast', alpha=0.8, capsize=5)
+    ax4.bar(x4 + width/2, u_netd_vals, width, yerr=u_netd_errs, label='Unicast', alpha=0.8, capsize=5)
+    ax4.set_ylabel('Data Transfer (MiB)')
+    ax4.set_title('Data Transfer Comparison')
+    ax4.set_xticks(x4)
+    ax4.set_xticklabels(netdata_labels)
+    ax4.legend()
+    ax4.grid(axis='y', alpha=0.3)
+
+    fig.suptitle(title)
+
+    file_name = str.lower(title).replace(' ','_')
+
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'cpu_memory_comparison.png'), dpi=300, bbox_inches='tight')
-    print(f"Saved plot: {output_dir}/cpu_memory_comparison.png")
-    plt.close()
-    
-    # Network Comparison
-    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-    
-    net_metrics = ['total_packets', 'data_size_bytes']
-    net_labels = ['Total Packets', 'Data Transfer (MB)']
-    
-    m_net_vals = [
-        multicast_agg['network'].get('total_packets', {}).get('mean', 0),
-        multicast_agg['network'].get('data_size_bytes', {}).get('mean', 0)/(1024*1024)
-    ]
-    u_net_vals = [
-        unicast_agg['network'].get('total_packets', {}).get('mean', 0),
-        unicast_agg['network'].get('data_size_bytes', {}).get('mean', 0)/(1024*1024)
-    ]
-    
-    m_net_errs = [
-        multicast_agg['network'].get('total_packets', {}).get('std', 0),
-        multicast_agg['network'].get('data_size_bytes', {}).get('std', 0)/(1024*1024)
-    ]
-    u_net_errs = [
-        unicast_agg['network'].get('total_packets', {}).get('std', 0),
-        unicast_agg['network'].get('data_size_bytes', {}).get('std', 0)/(1024*1024)
-    ]
-    
-    # Normalize for visualization (different scales)
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # Packets
-    x = [0]
-    width = 0.35
-    ax1.bar(x[0] - width/2, [m_net_vals[0]], width, yerr=[m_net_errs[0]], 
-            label='Multicast', alpha=0.8, capsize=5)
-    ax1.bar(x[0] + width/2, [u_net_vals[0]], width, yerr=[u_net_errs[0]], 
-            label='Unicast', alpha=0.8, capsize=5)
-    ax1.set_ylabel('Number of Packets')
-    ax1.set_title('Total Packets Comparison')
-    ax1.set_xticks([0])
-    ax1.set_xticklabels(['Packets'])
-    ax1.legend()
-    ax1.grid(axis='y', alpha=0.3)
-    
-    # Data
-    ax2.bar(x[0] - width/2, [m_net_vals[1]], width, yerr=[m_net_errs[1]], 
-            label='Multicast', alpha=0.8, capsize=5)
-    ax2.bar(x[0] + width/2, [u_net_vals[1]], width, yerr=[u_net_errs[1]], 
-            label='Unicast', alpha=0.8, capsize=5)
-    ax2.set_ylabel('Data Transfer (MB)')
-    ax2.set_title('Data Transfer Comparison')
-    ax2.set_xticks([0])
-    ax2.set_xticklabels(['Data'])
-    ax2.legend()
-    ax2.grid(axis='y', alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'network_comparison.png'), dpi=300, bbox_inches='tight')
-    print(f"Saved plot: {output_dir}/network_comparison.png")
+    plt.savefig(os.path.join(output_dir, f'{file_name}.png'), dpi=300, bbox_inches='tight')
+    print(f"Saved plot: {output_dir}/{file_name}.png")
     plt.close()
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: ./compare_results.py <multicast_pattern> <unicast_pattern>")
-        print("Example: ./compare_results.py 'results/multicast_test_iter*' 'results/unicast_test_iter*'")
+    if len(sys.argv) < 4:
+        print("Usage: ./compare_results.py <multicast_pattern> <unicast_pattern> <title>")
+        print("Example: ./compare_results.py 'results/multicast_3_clients_iter*' 'results/unicast_3_clients_iter*' 'Performance with 3 clients'")
         sys.exit(1)
     
     multicast_pattern = sys.argv[1]
     unicast_pattern = sys.argv[2]
+    title = sys.argv[3]
     
     print("Loading multicast results...")
     multicast_results = load_multiple_results(multicast_pattern)
@@ -584,12 +595,12 @@ def main():
     
     # Print comparison
     improvements = print_comparison(multicast_agg, unicast_agg, 
-                                   len(multicast_results), len(unicast_results))
+                                   len(multicast_results), len(unicast_results), title)
     
     # Generate plots
     print()
     print("Generating plots...")
-    plot_comparison(multicast_agg, unicast_agg)
+    plot_comparison(multicast_agg, unicast_agg, title)
     print()
     
     # Summary
