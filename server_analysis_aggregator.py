@@ -11,6 +11,8 @@ from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List
+import numpy as np
+import matplotlib.pyplot as plt
 
 
 @dataclass
@@ -73,7 +75,17 @@ def parse_server_analysis(file_path: Path) -> ServerMetrics:
 def extract_scenario_name(folder_name: str) -> str:
     """Extract scenario name from folder name (e.g., multicast_12_clients_iter1_... -> multicast_12_clients)."""
     match = re.match(r'(.+?)_iter\d+_', folder_name)
-    return match.group(1) if match else folder_name
+    scenario = match.group(1) if match else folder_name
+    client_number = re.search(r'([^_]+)_(\d+)_', scenario).group(2)
+
+    if (len(client_number) == 1):
+        client_number = f"0{client_number}"
+
+    first_part = match = re.match(r'([^_\d]+_)\d+(_[^_]+)', scenario).group(1)
+    last_part = match = re.match(r'([^_\d]+_)\d+(_[^_]+)', scenario).group(2)
+    scenario = f"{first_part}{client_number}{last_part}"
+
+    return scenario
 
 
 def calculate_averages(metrics_list: List[ServerMetrics]) -> ServerMetrics:
@@ -93,6 +105,65 @@ def calculate_averages(metrics_list: List[ServerMetrics]) -> ServerMetrics:
         avg_kib_sent=sum(m.avg_kib_sent for m in metrics_list) / n,
         peak_kib_sent=sum(m.peak_kib_sent for m in metrics_list) / n
     )
+
+def plot_metrics_over_clients(client_counts, unicast_values, multicast_values, title, axis_title, filename, output_dir='results'):
+    """
+    Plot resource usage comparison between unicast and multicast across different client counts.
+    
+    Parameters:
+    -----------
+    client_counts : list or array
+        Number of clients for each measurement point (e.g., [10, 50, 100, 200, 500])
+    unicast_values : list or array
+        Usage percentages for unicast (e.g., [15, 35, 65, 85, 95])
+    multicast_values : list or array
+        Usage percentages for multicast (e.g., [10, 12, 15, 18, 20])
+    title : str
+        Title of the plot
+    axis_title : str
+        Axis title (unit of metric)
+    """
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Set up bar positions
+    x = np.arange(len(client_counts))
+    width = 0.35
+    
+    # Create bars
+    ax.bar(x - width/2, unicast_values, width, label='Unicast', 
+                   color='#e74c3c', alpha=0.8)
+    ax.bar(x + width/2, multicast_values, width, label='Multicast', 
+                   color='#3498db', alpha=0.8)
+    
+    # Create line showing client counts
+    ax2 = ax.twinx()
+    line = ax2.plot(x, client_counts, 'o-', color='#26844d', linewidth=2, 
+                    markersize=8, label='Number of Clients')
+    ax2.set_ylabel('Number of Clients', fontsize=12, color="#26844d")
+    ax2.tick_params(axis='y', labelcolor='#26844d')
+    
+    # Labels and formatting
+    # ax.set_xlabel('Test Configuration', fontsize=12)
+    ax.set_ylabel(axis_title, fontsize=12)
+    ax.set_title(title, 
+                 fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    
+    ax.set_ylim(0, max(max(unicast_values), max(multicast_values)) * 1.13)
+    ax2.set_ylim(0, max(client_counts) * 1.13)
+    
+    # Combine legends
+    ax.legend(loc='upper left', fontsize=10)
+    ax2.legend(loc='upper right', fontsize=10)
+    
+    plt.tight_layout()
+
+    plt.savefig(os.path.join(output_dir, f'{filename}.png'), dpi=300, bbox_inches='tight')
+    print(f"Saved plot: {output_dir}/{filename}.png")
+    plt.close()
+
+    return fig, ax, ax2
 
 
 def main(base_dir: str = '.'):
@@ -116,7 +187,6 @@ def main(base_dir: str = '.'):
         try:
             metrics = parse_server_analysis(analysis_file)
             scenario_metrics[scenario].append(metrics)
-            print(f"Processed: {folder.name} -> {scenario}")
         except Exception as e:
             print(f"Error processing {folder.name}: {e}")
     
@@ -124,11 +194,39 @@ def main(base_dir: str = '.'):
     print("\n" + "="*80)
     print("AGGREGATED RESULTS - AVERAGES ACROSS ITERATIONS")
     print("="*80 + "\n")
-    
+
+    multicast_avg_cpu = []
+    unicast_avg_cpu = []
+
+    multicast_avg_mem = []
+    unicast_avg_mem = []
+
+    multicast_avg_sent = []
+    unicast_avg_sent = []
+
+    number_of_clients = []
+
     for scenario in sorted(scenario_metrics.keys()):
         metrics_list = scenario_metrics[scenario]
+
         avg_metrics = calculate_averages(metrics_list)
         iterations = len(metrics_list)
+
+        type = str(re.search(r'([^_]+)_(\d+)_', scenario).group(1))
+        client_number = int(re.search(r'([^_]+)_(\d+)_', scenario).group(2))
+
+        if client_number not in number_of_clients:
+            number_of_clients.append(client_number)
+
+        if type == 'unicast':
+            unicast_avg_cpu.append(avg_metrics.avg_cpu)
+            unicast_avg_mem.append(avg_metrics.avg_memory_mib)
+            unicast_avg_sent.append(avg_metrics.avg_kib_sent)
+
+        if type == 'multicast':
+            multicast_avg_cpu.append(avg_metrics.avg_cpu)
+            multicast_avg_mem.append(avg_metrics.avg_memory_mib)
+            multicast_avg_sent.append(avg_metrics.avg_kib_sent)
         
         print(f"Scenario: {scenario}")
         print(f"Iterations: {iterations}")
@@ -156,6 +254,17 @@ def main(base_dir: str = '.'):
         
         print("\n" + "="*80 + "\n")
 
+    plot_metrics_over_clients(number_of_clients, unicast_avg_cpu, multicast_avg_cpu, 
+        'CPU Usage: Unicast vs Multicast across different client counts', 
+        'Average CPU usage (%)', 'cpu_usage_across_clients')
+    
+    plot_metrics_over_clients(number_of_clients, unicast_avg_mem, multicast_avg_mem, 
+        'Memory Usage: Unicast vs Multicast across different client counts', 
+        'Average Memory usage (MiB)', 'memory_usage_across_clients')
+    
+    plot_metrics_over_clients(number_of_clients, unicast_avg_sent, multicast_avg_sent, 
+        'Network Usage: Unicast vs Multicast across different client counts', 
+        'Average sending throughput (KiB/s)', 'network_sent_across_clients')
 
 if __name__ == '__main__':
     import sys
