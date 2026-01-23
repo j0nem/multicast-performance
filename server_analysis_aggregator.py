@@ -24,12 +24,16 @@ class ServerMetrics:
     peak_memory_mib: float
     avg_packets_received: float
     peak_packets_received: float
+    total_packets_received: int
     avg_packets_sent: float
     peak_packets_sent: float
+    total_packets_sent: int
     avg_kib_received: float
     peak_kib_received: float
+    total_kib_received: float
     avg_kib_sent: float
     peak_kib_sent: float
+    total_kib_sent: float
 
 
 def parse_server_analysis(file_path: Path) -> ServerMetrics:
@@ -48,27 +52,38 @@ def parse_server_analysis(file_path: Path) -> ServerMetrics:
     # Extract Network statistics
     avg_pkt_recv = float(re.search(r'Average Packets Received:\s+([\d.]+)\s+packets/s', content).group(1))
     peak_pkt_recv = float(re.search(r'Peak Packets Received:\s+([\d.]+)\s+packets/s', content).group(1))
+    total_pkt_recv = float(re.search(r'Total Packets Received:\s+([\d.]+)\s+packets', content).group(1))
     avg_pkt_sent = float(re.search(r'Average Packets Sent:\s+([\d.]+)\s+packets/s', content).group(1))
     peak_pkt_sent = float(re.search(r'Peak Packets Sent:\s+([\d.]+)\s+packets/s', content).group(1))
+    total_pkt_sent = float(re.search(r'Total Packets Sent:\s+([\d.]+)\s+packets', content).group(1))
     
     avg_kib_recv = float(re.search(r'Average KiB Received:\s+([\d.]+)\s+KiB/s', content).group(1))
     peak_kib_recv = float(re.search(r'Peak KiB Received:\s+([\d.]+)\s+KiB/s', content).group(1))
+    total_kib_recv = float(re.search(r'Total KiB Received:\s+([\d.]+)\s+KiB', content).group(1))
+
     avg_kib_sent = float(re.search(r'Average KiB Sent:\s+([\d.]+)\s+KiB/s', content).group(1))
     peak_kib_sent = float(re.search(r'Peak KiB Sent:\s+([\d.]+)\s+KiB/s', content).group(1))
+    total_kib_sent = float(re.search(r'Total KiB Sent:\s+([\d.]+)\s+KiB', content).group(1))
     
     return ServerMetrics(
         avg_cpu=avg_cpu,
         peak_cpu=peak_cpu,
         avg_memory_mib=avg_mem,
         peak_memory_mib=peak_mem,
+
         avg_packets_received=avg_pkt_recv,
         peak_packets_received=peak_pkt_recv,
+        total_packets_received=total_pkt_recv,
         avg_packets_sent=avg_pkt_sent,
         peak_packets_sent=peak_pkt_sent,
+        total_packets_sent=total_pkt_sent,
+
         avg_kib_received=avg_kib_recv,
         peak_kib_received=peak_kib_recv,
+        total_kib_received=total_kib_recv,
         avg_kib_sent=avg_kib_sent,
-        peak_kib_sent=peak_kib_sent
+        peak_kib_sent=peak_kib_sent,
+        total_kib_sent=total_kib_sent,
     )
 
 
@@ -98,12 +113,16 @@ def calculate_averages(metrics_list: List[ServerMetrics]) -> ServerMetrics:
         peak_memory_mib=sum(m.peak_memory_mib for m in metrics_list) / n,
         avg_packets_received=sum(m.avg_packets_received for m in metrics_list) / n,
         peak_packets_received=sum(m.peak_packets_received for m in metrics_list) / n,
+        total_packets_received=sum(m.total_packets_received for m in metrics_list) / n,
         avg_packets_sent=sum(m.avg_packets_sent for m in metrics_list) / n,
         peak_packets_sent=sum(m.peak_packets_sent for m in metrics_list) / n,
+        total_packets_sent=sum(m.total_packets_sent for m in metrics_list) / n,
         avg_kib_received=sum(m.avg_kib_received for m in metrics_list) / n,
         peak_kib_received=sum(m.peak_kib_received for m in metrics_list) / n,
+        total_kib_received=sum(m.total_kib_received for m in metrics_list) / n,
         avg_kib_sent=sum(m.avg_kib_sent for m in metrics_list) / n,
-        peak_kib_sent=sum(m.peak_kib_sent for m in metrics_list) / n
+        peak_kib_sent=sum(m.peak_kib_sent for m in metrics_list) / n,
+        total_kib_sent=sum(m.total_kib_sent for m in metrics_list) / n
     )
 
 def plot_metrics_over_clients(client_counts, unicast_values, multicast_values, title, axis_title, filename, output_dir='results'):
@@ -159,8 +178,8 @@ def plot_metrics_over_clients(client_counts, unicast_values, multicast_values, t
     
     plt.tight_layout()
 
-    plt.savefig(os.path.join(output_dir, f'{filename}.png'), dpi=300, bbox_inches='tight')
-    print(f"Saved plot: {output_dir}/{filename}.png")
+    plt.savefig(os.path.join(output_dir, f'{filename}.svg'), dpi=300, bbox_inches='tight')
+    print(f"Saved plot: {output_dir}/{filename}.svg")
     plt.close()
 
     return fig, ax, ax2
@@ -204,6 +223,12 @@ def main(base_dir: str = '.'):
     multicast_avg_sent = []
     unicast_avg_sent = []
 
+    multicast_total_pkt_sent = []
+    unicast_total_pkt_sent = []
+
+    multicast_total_mib_sent = []
+    unicast_total_mib_sent = []
+
     number_of_clients = []
 
     for scenario in sorted(scenario_metrics.keys()):
@@ -222,11 +247,15 @@ def main(base_dir: str = '.'):
             unicast_avg_cpu.append(avg_metrics.avg_cpu)
             unicast_avg_mem.append(avg_metrics.avg_memory_mib)
             unicast_avg_sent.append(avg_metrics.avg_kib_sent)
+            unicast_total_pkt_sent.append(avg_metrics.total_packets_sent)
+            unicast_total_mib_sent.append(avg_metrics.total_kib_sent / 1024)
 
         if type == 'multicast':
             multicast_avg_cpu.append(avg_metrics.avg_cpu)
             multicast_avg_mem.append(avg_metrics.avg_memory_mib)
             multicast_avg_sent.append(avg_metrics.avg_kib_sent)
+            multicast_total_pkt_sent.append(avg_metrics.total_packets_sent)
+            multicast_total_mib_sent.append(avg_metrics.total_kib_sent / 1024)
         
         print(f"Scenario: {scenario}")
         print(f"Iterations: {iterations}")
@@ -243,14 +272,19 @@ def main(base_dir: str = '.'):
         print("\nNetwork - Packets:")
         print(f"  Average Packets Received: {avg_metrics.avg_packets_received:.2f} packets/s")
         print(f"  Peak Packets Received:    {avg_metrics.peak_packets_received:.2f} packets/s")
+        print(f"  Total Packets Received:   {avg_metrics.total_packets_received:.2f} packets")
+
         print(f"  Average Packets Sent:     {avg_metrics.avg_packets_sent:.2f} packets/s")
         print(f"  Peak Packets Sent:        {avg_metrics.peak_packets_sent:.2f} packets/s")
+        print(f"  Total Packets Sent:       {avg_metrics.total_packets_sent:.2f} packets")
         
         print("\nNetwork - Throughput:")
         print(f"  Average KiB Received: {avg_metrics.avg_kib_received:.2f} KiB/s")
         print(f"  Peak KiB Received:    {avg_metrics.peak_kib_received:.2f} KiB/s")
+        print(f"  Total KiB Received:   {avg_metrics.total_kib_received:.2f} KiB")
+
         print(f"  Average KiB Sent:     {avg_metrics.avg_kib_sent:.2f} KiB/s")
-        print(f"  Peak KiB Sent:        {avg_metrics.peak_kib_sent:.2f} KiB/s")
+        print(f"  Total KiB Sent:       {avg_metrics.total_kib_sent:.2f} KiB")
         
         print("\n" + "="*80 + "\n")
 
@@ -263,8 +297,16 @@ def main(base_dir: str = '.'):
         'Average Memory usage (MiB)', 'memory_usage_across_clients')
     
     plot_metrics_over_clients(number_of_clients, unicast_avg_sent, multicast_avg_sent, 
-        'Network Usage: Unicast vs Multicast across different client counts', 
-        'Average sending throughput (KiB/s)', 'network_sent_across_clients')
+        'Sending rate: Unicast vs Multicast across different client counts', 
+        'Average sending rate (KiB/s)', 'network_avg_sent_across_clients')
+    
+    plot_metrics_over_clients(number_of_clients, unicast_total_pkt_sent, multicast_total_pkt_sent, 
+        'Total Packets sent: Unicast vs Multicast across different client counts', 
+        'Total packets sent', 'network_total_pkt_sent_across_clients')
+    
+    plot_metrics_over_clients(number_of_clients, unicast_total_mib_sent, multicast_total_mib_sent, 
+        'Total Data sent: Unicast vs Multicast across different client counts', 
+        'Total data sent (MiB)', 'network_total_data_sent_across_clients')
 
 if __name__ == '__main__':
     import sys

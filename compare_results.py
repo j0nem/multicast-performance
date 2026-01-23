@@ -172,15 +172,19 @@ def parse_network_log(filepath):
         'pkts_recv_values': [],
         'pkts_recv_avg': 0.0,
         'pkts_recv_peak': 0.0,
+        'pkts_recv_total': 0,
         'pkts_sent_values': [],
         'pkts_sent_avg': 0.0,
         'pkts_sent_peak': 0.0,
+        'pkts_sent_total': 0,
         'kib_recv_values': [],
         'kib_recv_avg': 0.0,
         'kib_recv_peak': 0.0,
+        'kib_recv_total': 0.0,
         'kib_sent_values': [],
         'kib_sent_avg': 0.0,
         'kib_sent_peak': 0.0,
+        'kib_sent_total': 0.0,
     }
     
     if not os.path.exists(filepath):
@@ -248,10 +252,12 @@ def parse_network_log(filepath):
     if stats['pkts_recv_values']:
         stats['pkts_recv_avg'] = sum(stats['pkts_recv_values']) / len(stats['pkts_recv_values'])
         stats['pkts_recv_peak'] = max(stats['pkts_recv_values'])
+        stats['pkts_recv_total'] = sum(stats['pkts_recv_values'])
 
     if stats['pkts_sent_values']:
         stats['pkts_sent_avg'] = sum(stats['pkts_sent_values']) / len(stats['pkts_sent_values'])
         stats['pkts_sent_peak'] = max(stats['pkts_sent_values'])
+        stats['pkts_sent_total'] = sum(stats['pkts_sent_values'])
 
         stats['pkts_total_avg'] = (sum(stats['pkts_sent_values']) + sum(stats['pkts_recv_values'])) / (len(stats['pkts_sent_values']) + len(stats['pkts_recv_values']))
         stats['pkts_total_peak'] = max(stats['pkts_sent_values'])
@@ -259,10 +265,12 @@ def parse_network_log(filepath):
     if stats['kib_recv_values']:
         stats['kib_recv_avg'] = sum(stats['kib_recv_values']) / len(stats['kib_recv_values'])
         stats['kib_recv_peak'] = max(stats['kib_recv_values'])
+        stats['kib_recv_total'] = sum(stats['kib_recv_values'])
 
     if stats['kib_sent_values']:
         stats['kib_sent_avg'] = sum(stats['kib_sent_values']) / len(stats['kib_sent_values'])
         stats['kib_sent_peak'] = max(stats['kib_sent_values'])
+        stats['kib_sent_total'] = sum(stats['kib_sent_values'])
 
     return stats
 
@@ -424,28 +432,28 @@ def print_comparison(multicast_agg, unicast_agg, multicast_count, unicast_count,
     print("NETWORK USAGE")
     print("=" * 80)
     
-    m_packets_sent = multicast_agg['network'].get('pkts_sent_avg', {}).get('mean', 0)
-    u_packets_sent = unicast_agg['network'].get('pkts_sent_avg', {}).get('mean', 0)
+    m_packets_sent = multicast_agg['network'].get('pkts_sent_total', {}).get('mean', 0)
+    u_packets_sent = unicast_agg['network'].get('pkts_sent_total', {}).get('mean', 0)
     packets_sent_improvement = calculate_improvement(m_packets_sent, u_packets_sent)
 
-    m_packets_recv = multicast_agg['network'].get('pkts_recv_avg', {}).get('mean', 0)
-    u_packets_recv = unicast_agg['network'].get('pkts_recv_avg', {}).get('mean', 0)
+    m_packets_recv = multicast_agg['network'].get('pkts_recv_total', {}).get('mean', 0)
+    u_packets_recv = unicast_agg['network'].get('pkts_recv_total', {}).get('mean', 0)
     packets_recv_improvement = calculate_improvement(m_packets_recv, u_packets_recv)
     
-    m_data_sent = multicast_agg['network'].get('kib_sent_avg', {}).get('mean', 0)
-    u_data_sent = unicast_agg['network'].get('kib_sent_avg', {}).get('mean', 0)
+    m_data_sent = multicast_agg['network'].get('kib_sent_total', {}).get('mean', 0)
+    u_data_sent = unicast_agg['network'].get('kib_sent_total', {}).get('mean', 0)
     data_sent_improvement = calculate_improvement(m_data_sent, u_data_sent)
 
-    m_data_recv = multicast_agg['network'].get('kib_recv_avg', {}).get('mean', 0)
-    u_data_recv = unicast_agg['network'].get('kib_recv_avg', {}).get('mean', 0)
+    m_data_recv = multicast_agg['network'].get('kib_recv_total', {}).get('mean', 0)
+    u_data_recv = unicast_agg['network'].get('kib_recv_total', {}).get('mean', 0)
     data_recv_improvement = calculate_improvement(m_data_recv, u_data_recv)
     
     print(f"{'Metric':<30} {'Multicast':<25} {'Unicast':<25} {'Improvement':<15}")
     print("-" * 95)
     print(f"{'Total Packets Sent':<30} {m_packets_sent:<25.0f} {u_packets_sent:<25.0f} {packets_sent_improvement:>+.2f}%")
     print(f"{'Total Packets Received':<30} {m_packets_recv:<25.0f} {u_packets_recv:<25.0f} {packets_recv_improvement:>+.2f}%")
-    print(f"{'Total Data Sent':<30} {format_bytes(m_data_sent):<25} {format_bytes(u_data_sent):<25} {data_sent_improvement:>+.2f}%")
-    print(f"{'Total Data Received':<30} {format_bytes(m_data_recv):<25} {format_bytes(u_data_recv):<25} {data_recv_improvement:>+.2f}%")
+    print(f"{'Total Data Sent':<30} {format_bytes(m_data_sent*1024):<25} {format_bytes(u_data_sent*1024):<25} {data_sent_improvement:>+.2f}%")
+    print(f"{'Total Data Received':<30} {format_bytes(m_data_recv*1024):<25} {format_bytes(u_data_recv*1024):<25} {data_recv_improvement:>+.2f}%")
     print()
     
     return {
@@ -511,8 +519,8 @@ def plot_comparison(multicast_agg, unicast_agg, title, output_dir='results'):
     ax2.legend()
     ax2.grid(axis='y', alpha=0.3)
     
-    # Network Packets Comparison    
-    netpkt_metrics = ['pkts_sent_avg', 'pkts_recv_avg']
+    # Network Packets Comparison
+    netpkt_metrics = ['pkts_sent_total', 'pkts_recv_total']
     netpkt_labels = ['Total Packets Sent', 'Total Packets Recieved']
     
     m_netp_vals = [multicast_agg['network'].get(m, {}).get('mean', 0) for m in netpkt_metrics]
@@ -533,8 +541,8 @@ def plot_comparison(multicast_agg, unicast_agg, title, output_dir='results'):
     ax3.grid(axis='y', alpha=0.3)
     
     # Network Data Comparison
-    netdata_metrics = ['kib_sent_avg', 'kib_recv_avg']
-    netdata_labels = ['Data Sent (MiB)', 'Data Received (MiB)']
+    netdata_metrics = ['kib_sent_total', 'kib_recv_total']
+    netdata_labels = ['Total data sent (MiB)', 'Total data received (MiB)']
     
     m_netd_vals = [multicast_agg['network'].get(m, {}).get('mean', 0)/1024 for m in netdata_metrics]
     u_netd_vals = [unicast_agg['network'].get(m, {}).get('mean', 0)/1024 for m in netdata_metrics]
@@ -558,8 +566,8 @@ def plot_comparison(multicast_agg, unicast_agg, title, output_dir='results'):
     file_name = str.lower(title).replace(' ','_')
 
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, f'{file_name}.png'), dpi=300, bbox_inches='tight')
-    print(f"Saved plot: {output_dir}/{file_name}.png")
+    plt.savefig(os.path.join(output_dir, f'{file_name}.svg'), dpi=300, bbox_inches='tight')
+    print(f"Saved plot: {output_dir}/{file_name}.svg")
     plt.close()
 
 def main():

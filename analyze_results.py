@@ -159,10 +159,10 @@ def parse_pidstat_log(filepath):
 def parse_network_log(filepath):
     """Parse sar network measures output with proper column detection"""
     stats = {
-        'pkts_recv': {'avg': 0, 'peak': 0, 'values': []},
-        'pkts_sent': {'avg': 0, 'peak': 0, 'values': []},
-        'kib_recv': {'avg': 0, 'peak': 0, 'values': []},
-        'kib_sent': {'avg': 0, 'peak': 0, 'values': []},
+        'pkts_recv': {'avg': 0, 'peak': 0, 'total': 0, 'values': []},
+        'pkts_sent': {'avg': 0, 'peak': 0, 'total': 0, 'values': []},
+        'kib_recv': {'avg': 0, 'peak': 0, 'total': 0.0, 'values': []},
+        'kib_sent': {'avg': 0, 'peak': 0, 'total': 0.0, 'values': []},
     }
     
     if not os.path.exists(filepath):
@@ -230,18 +230,22 @@ def parse_network_log(filepath):
     if stats['pkts_recv']['values']:
         stats['pkts_recv']['avg'] = sum(stats['pkts_recv']['values']) / len(stats['pkts_recv']['values'])
         stats['pkts_recv']['peak'] = max(stats['pkts_recv']['values'])
+        stats['pkts_recv']['total'] = sum(stats['pkts_recv']['values'])
 
     if stats['pkts_sent']['values']:
         stats['pkts_sent']['avg'] = sum(stats['pkts_sent']['values']) / len(stats['pkts_sent']['values'])
         stats['pkts_sent']['peak'] = max(stats['pkts_sent']['values'])
+        stats['pkts_sent']['total'] = sum(stats['pkts_sent']['values'])
 
     if stats['kib_recv']['values']:
         stats['kib_recv']['avg'] = sum(stats['kib_recv']['values']) / len(stats['kib_recv']['values'])
         stats['kib_recv']['peak'] = max(stats['kib_recv']['values'])
+        stats['kib_recv']['total'] = sum(stats['kib_recv']['values'])
 
     if stats['kib_sent']['values']:
         stats['kib_sent']['avg'] = sum(stats['kib_sent']['values']) / len(stats['kib_sent']['values'])
         stats['kib_sent']['peak'] = max(stats['kib_sent']['values'])
+        stats['kib_sent']['total'] = sum(stats['kib_sent']['values'])
 
     return stats
 
@@ -366,17 +370,25 @@ def main():
         if network_stats['pkts_recv']['avg'] > 0:
             print(f"Average Packets Received: {network_stats['pkts_recv']['avg']:.2f} packets/s")
             print(f"Peak Packets Received: {network_stats['pkts_recv']['peak']:.2f} packets/s")
+            print(f"Total Packets Received: {network_stats['pkts_recv']['total']} packets")
+            print()
+
         if network_stats['pkts_sent']['avg'] > 0:
             print(f"Average Packets Sent: {network_stats['pkts_sent']['avg']:.2f} packets/s")
             print(f"Peak Packets Sent: {network_stats['pkts_sent']['peak']:.2f} packets/s")
+            print(f"Total Packets Sent: {network_stats['pkts_sent']['total']} packets")
             print()
         
         if network_stats['kib_recv']['avg'] > 0:
             print(f"Average KiB Received: {network_stats['kib_recv']['avg']:.2f} KiB/s")
             print(f"Peak KiB Received: {network_stats['kib_recv']['peak']:.2f} KiB/s")
+            print(f"Total KiB Received: {network_stats['kib_recv']['total']:.2f} KiB")
+            print()
+
         if network_stats['kib_sent']['avg'] > 0:
             print(f"Average KiB Sent: {network_stats['kib_sent']['avg']:.2f} KiB/s")
             print(f"Peak KiB Sent: {network_stats['kib_sent']['peak']:.2f} KiB/s")
+            print(f"Total KiB Sent: {network_stats['kib_sent']['total']:.2f} KiB")
             print()
     
     print()
