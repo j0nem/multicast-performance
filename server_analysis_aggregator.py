@@ -217,11 +217,20 @@ def main(base_dir: str = '.'):
     multicast_avg_cpu = []
     unicast_avg_cpu = []
 
+    multicast_peak_cpu = []
+    unicast_peak_cpu = []
+
     multicast_avg_mem = []
     unicast_avg_mem = []
 
+    multicast_peak_mem = []
+    unicast_peak_mem = []
+
     multicast_avg_sent = []
     unicast_avg_sent = []
+
+    multicast_peak_mib_sent = []
+    unicast_peak_mib_sent = []
 
     multicast_total_pkt_sent = []
     unicast_total_pkt_sent = []
@@ -246,14 +255,20 @@ def main(base_dir: str = '.'):
         if type == 'unicast':
             unicast_avg_cpu.append(avg_metrics.avg_cpu)
             unicast_avg_mem.append(avg_metrics.avg_memory_mib)
+            unicast_peak_cpu.append(avg_metrics.peak_cpu)
+            unicast_peak_mem.append(avg_metrics.peak_memory_mib)
             unicast_avg_sent.append(avg_metrics.avg_kib_sent)
+            unicast_peak_mib_sent.append(avg_metrics.peak_kib_sent / 1024)
             unicast_total_pkt_sent.append(avg_metrics.total_packets_sent)
             unicast_total_mib_sent.append(avg_metrics.total_kib_sent / 1024)
 
         if type == 'multicast':
             multicast_avg_cpu.append(avg_metrics.avg_cpu)
             multicast_avg_mem.append(avg_metrics.avg_memory_mib)
+            multicast_peak_cpu.append(avg_metrics.peak_cpu)
+            multicast_peak_mem.append(avg_metrics.peak_memory_mib)
             multicast_avg_sent.append(avg_metrics.avg_kib_sent)
+            multicast_peak_mib_sent.append(avg_metrics.peak_kib_sent / 1024)
             multicast_total_pkt_sent.append(avg_metrics.total_packets_sent)
             multicast_total_mib_sent.append(avg_metrics.total_kib_sent / 1024)
         
@@ -284,29 +299,42 @@ def main(base_dir: str = '.'):
         print(f"  Total KiB Received:   {avg_metrics.total_kib_received:.2f} KiB")
 
         print(f"  Average KiB Sent:     {avg_metrics.avg_kib_sent:.2f} KiB/s")
+        print(f"  Peak KiB Sent:        {avg_metrics.peak_kib_sent:.2f} KiB/s")
         print(f"  Total KiB Sent:       {avg_metrics.total_kib_sent:.2f} KiB")
         
         print("\n" + "="*80 + "\n")
 
     plot_metrics_over_clients(number_of_clients, unicast_avg_cpu, multicast_avg_cpu, 
-        'CPU Usage: Unicast vs Multicast across different client counts', 
-        'Average CPU usage (%)', 'cpu_usage_across_clients')
+        'Average CPU usage: Unicast vs Multicast across different client counts', 
+        'Average CPU usage (%)', 'cpu_avg_across_clients')
+    
+    plot_metrics_over_clients(number_of_clients, unicast_peak_cpu, multicast_peak_cpu, 
+        'Peak CPU usage: Unicast vs Multicast across different client counts', 
+        'Peak CPU usage (%)', 'cpu_peak_across_clients')
     
     plot_metrics_over_clients(number_of_clients, unicast_avg_mem, multicast_avg_mem, 
-        'Memory Usage: Unicast vs Multicast across different client counts', 
-        'Average Memory usage (MiB)', 'memory_usage_across_clients')
+        'Average memory usage: Unicast vs Multicast across different client counts', 
+        'Average memory usage (MiB)', 'memory_avg_across_clients')
+    
+    plot_metrics_over_clients(number_of_clients, unicast_peak_mem, multicast_peak_mem, 
+        'Peak memory usage: Unicast vs Multicast across different client counts', 
+        'Peak memory usage (MiB)', 'memory_peak_across_clients')
     
     plot_metrics_over_clients(number_of_clients, unicast_avg_sent, multicast_avg_sent, 
-        'Sending rate: Unicast vs Multicast across different client counts', 
-        'Average sending rate (KiB/s)', 'network_avg_sent_across_clients')
+        'Average sending rate: Unicast vs Multicast across different client counts', 
+        'Average sending rate (KiB/s)', 'network_avg_rate_across_clients')
     
     plot_metrics_over_clients(number_of_clients, unicast_total_pkt_sent, multicast_total_pkt_sent, 
-        'Total Packets sent: Unicast vs Multicast across different client counts', 
+        'Total packets sent: Unicast vs Multicast across different client counts', 
         'Total packets sent', 'network_total_pkt_sent_across_clients')
     
     plot_metrics_over_clients(number_of_clients, unicast_total_mib_sent, multicast_total_mib_sent, 
-        'Total Data sent: Unicast vs Multicast across different client counts', 
+        'Total data sent: Unicast vs Multicast across different client counts', 
         'Total data sent (MiB)', 'network_total_data_sent_across_clients')
+    
+    plot_metrics_over_clients(number_of_clients, unicast_peak_mib_sent, multicast_peak_mib_sent, 
+        'Peak data sending rate: Unicast vs Multicast across different client counts', 
+        'Peak data sending rate (MiB/s)', 'network_peak_rate_across_clients')
 
 if __name__ == '__main__':
     import sys
